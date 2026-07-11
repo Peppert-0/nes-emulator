@@ -1,27 +1,6 @@
-struct Cpu {
-    a: u8,
-    x: u8,
-    y: u8, 
-    pc: u16,
-    sp: u8,
-    p: u8
-}
+use crate::bus;
 
-struct Opcode {
-    instruction: Instruction,
-    mode: AddressingMode,
-    cycles: u8
-}
-
-// flags
-const CARRY: u8 = 1 << 0;
-const ZERO: u8 = 1 << 1;
-const INTERRUPT: u8 = 1 << 2;
-const DECIMAL: u8 = 1 << 3;
-const OVERFLOW: u8 = 1 << 6;
-const NEGATIVE: u8 = 1 << 7;
-
-const OPCODES: [Opcode; 256] = [
+pub const OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::BRK, mode:AddressingMode::Implicit, cycles:7}, // 0x00
     Opcode {instruction:Instruction::ORA, mode:AddressingMode::IndirectX, cycles:6}, // 0x01
     Opcode {instruction:Instruction::KIL, mode:AddressingMode::Implicit, cycles:0}, // 0x02
@@ -280,6 +259,7 @@ const OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::ISC, mode:AddressingMode::AbsoluteX, cycles:7}, // 0xFF
 ];
 
+#[derive(Debug)]
 enum Instruction {
     LDA,
     STA,
@@ -358,6 +338,15 @@ enum Instruction {
     ISC,
 }
 
+// flags
+const CARRY: u8 = 1 << 0;
+const ZERO: u8 = 1 << 1;
+const INTERRUPT: u8 = 1 << 2;
+const DECIMAL: u8 = 1 << 3;
+const OVERFLOW: u8 = 1 << 6;
+const NEGATIVE: u8 = 1 << 7;
+
+#[derive(Debug)]
 enum AddressingMode {
     ZeroPageX,
     ZeroPageY,
@@ -374,8 +363,28 @@ enum AddressingMode {
     Relative
 }
 
+struct Cpu {
+    a: u8,
+    x: u8,
+    y: u8, 
+    pc: u16,
+    sp: u8,
+    p: u8
+}
+
+#[derive(Debug)]
+pub struct Opcode {
+    instruction: Instruction,
+    mode: AddressingMode,
+    cycles: u8
+}
+
 impl Cpu {
     fn lda(&mut self, value: u8) {
-        self.a = value
+        self.a = value;
+    } 
+    fn sta(self, bus: &mut bus::Bus, address: u16) {
+        let value = self.a;
+        bus.write(value, address);
     }
 }
