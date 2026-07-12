@@ -14,11 +14,20 @@ fn print_memory_values(memory: [u8; 0x10000]) {
 }
 
 fn main() {
-    //print_opcodes(cpu::OPCODES);
+    let mut cpu = cpu::Cpu::new();
+    let mut bus = bus::Bus::new();
 
-    let mut memory_bus = bus::Bus::new();
-    memory_bus.write(0xFF, 0xAAAA);
-    let value = memory_bus.read(0xAAAA);
-    println!{"{:02X}", value};
+    bus.write(0xA9, 0xAAAA);
+    bus.write(0x01, 0xAAAB);
+
+    println!("{:08b}", cpu.status());
+    println!("{:?}", cpu.carry());
+    cpu.set_carry(true);
+    println!("{:08b}", cpu.status());
+    println!("{:?}", cpu.carry());
+    cpu.set_carry(false);
+    cpu.set_zero(true);
+    println!("{:08b}", cpu.status());
+    println!("{:?}", cpu.carry());
+    println!("{:?}", cpu.zero());
 }
-

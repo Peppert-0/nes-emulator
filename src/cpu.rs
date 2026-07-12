@@ -363,7 +363,7 @@ enum AddressingMode {
     Relative
 }
 
-struct Cpu {
+pub struct Cpu {
     a: u8,
     x: u8,
     y: u8, 
@@ -380,11 +380,107 @@ pub struct Opcode {
 }
 
 impl Cpu {
-    fn lda(&mut self, value: u8) {
+    pub fn new() -> Self {
+        Cpu {
+            a: 0x00,
+            x: 0x00,
+            y: 0x00,
+            pc: 0x0000,
+            sp: 0x00,
+            p: 0b0000_0000
+        }
+    }
+}
+
+// instructions
+impl Cpu {
+    pub fn lda(&mut self, value: u8) {
         self.a = value;
     } 
-    fn sta(self, bus: &mut bus::Bus, address: u16) {
+    pub fn sta(&self, bus: &mut bus::Bus, address: u16) {
         let value = self.a;
         bus.write(value, address);
+    }
+}
+
+// addressing modes
+impl Cpu {
+    pub fn immediate(value: u8) -> u8 {
+        value
+    }
+}
+
+// flags
+impl Cpu {
+    pub fn status(&self) -> u8 {
+        self.p
+    }
+
+    pub fn carry(&self) -> bool {
+        self.p == CARRY
+    }
+    pub fn zero(&self) -> bool {
+        self.p == ZERO
+    }
+    pub fn interrupt(&self) -> bool {
+        self.p == INTERRUPT
+    }
+    pub fn decimal(&self) -> bool {
+        self.p == DECIMAL
+    }
+    pub fn overflow(&self) -> bool {
+        self.p == OVERFLOW
+    }
+    pub fn negative(&self) -> bool {
+        self.p == NEGATIVE
+    }
+
+    pub fn set_carry(&mut self, value: bool) {
+        if value {
+            self.p |= CARRY;
+        }
+        else {
+            self.p &= !CARRY;
+        }
+    }
+    pub fn set_zero(&mut self, value: bool) {
+        if value {
+            self.p |= ZERO;
+        }
+        else {
+            self.p &= !ZERO;
+        }
+    }
+    pub fn set_interrupt(&mut self, value: bool) {
+        if value {
+            self.p |= INTERRUPT;
+        }
+        else {
+            self.p &= !INTERRUPT;
+        }
+    }
+    pub fn set_decimal(&mut self, value: bool) {
+        if value {
+            self.p |= DECIMAL;
+        }
+        else {
+            self.p &= !DECIMAL;
+        }
+    }
+    pub fn set_overflow(&mut self, value: bool) {
+        if value {
+            self.p |= OVERFLOW;
+        }
+        else {
+            self.p &= !OVERFLOW;
+        }
+    }
+    pub fn set_negative(&mut self, value: bool) {
+        if value {
+            self.p |= NEGATIVE;
+        }
+        else {
+            self.p &= !NEGATIVE;
+        }
     }
 }

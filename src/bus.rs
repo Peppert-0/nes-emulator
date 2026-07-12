@@ -8,7 +8,7 @@ impl Bus {
             memory: [0; 0x10000]
         }
     }
-    pub fn read(self, address: u16) -> u8 {
+    pub fn read(&self, address: u16) -> u8 {
         self.memory[address as usize]
     }
     pub fn write(&mut self, value: u8, address: u16) {
