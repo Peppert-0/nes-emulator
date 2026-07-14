@@ -20,14 +20,7 @@ fn main() {
     bus.write(0xA9, 0xAAAA);
     bus.write(0x01, 0xAAAB);
 
+    cpu.lda(0);
     println!("{:08b}", cpu.status());
-    println!("{:?}", cpu.carry());
-    cpu.set_carry(true);
-    println!("{:08b}", cpu.status());
-    println!("{:?}", cpu.carry());
-    cpu.set_carry(false);
-    cpu.set_zero(true);
-    println!("{:08b}", cpu.status());
-    println!("{:?}", cpu.carry());
     println!("{:?}", cpu.zero());
 }

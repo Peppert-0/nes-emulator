@@ -363,6 +363,14 @@ enum AddressingMode {
     Relative
 }
 
+enum Operand {
+    Address(u16),
+    Immediate(u16),
+    Relative(i8),
+    Accumulator,
+    Implied
+}
+
 pub struct Cpu {
     a: u8,
     x: u8,
@@ -390,23 +398,163 @@ impl Cpu {
             p: 0b0000_0000
         }
     }
+
+    pub fn fetch<B: bus::Bus>(&mut self, bus: &B) -> &Opcode {
+        let opcode = bus.read(self.pc);
+        self.pc = self.pc.wrapping_add(1);
+        &OPCODES[opcode as usize]
+    }
+    pub fn decode<B: bus::Bus>(&mut self, bus: &B, opcode: &Opcode) {
+        let operand = match opcode.mode {
+            AddressingMode::Implicit => {
+                Operand::Implied
+            }
+            AddressingMode::Accumulator => {
+                Operand::Accumulator
+            }
+            AddressingMode::Immediate => {
+                let address = self.pc;
+                self.pc = self.pc.wrapping_add(1);
+                Operand::Immediate(address)
+            }
+            AddressingMode::ZeroPage => {
+                let address = bus.read(self.pc);
+                self.pc = self.pc.wrapping_add(1);
+                Operand::Address(u16::from(address))
+            }
+            AddressingMode::ZeroPageX => {
+                let base = bus.read(self.pc);
+                let address = base.wrapping_add(self.x);
+                self.pc = self.pc.wrapping_add(1);
+                Operand::Address(u16::from(address))
+            }
+            AddressingMode::ZeroPageY => {
+                let base = bus.read(self.pc);
+                let address = base.wrapping_add(self.y);
+                self.pc = self.pc.wrapping_add(1);
+                Operand::Address(u16::from(address))
+            }
+            AddressingMode::Relative => {
+                let base = bus.read(self.pc) as i8;
+                self.pc = self.pc.wrapping_add(1);
+                Operand::Relative(base)
+            }
+            AddressingMode::Absolute => {
+                let base = self.pc;
+                let address = bus.read_u16(base);
+                self.pc = self.pc.wrapping_add(2);
+                Operand::Address(address)
+            }
+            AddressingMode::AbsoluteX => {
+                let base = self.pc;
+                let address = bus.read_u16(base).wrapping_add(u16::from(self.x));
+                self. pc = self.pc.wrapping_add(2);
+                Operand::Address(address)
+            }
+            AddressingMode::AbsoluteY => {
+                let base = self.pc;
+                let address = bus.read_u16(base).wrapping_add(u16::from(self.y));
+                self.pc = self.pc.wrapping_add(2);
+                Operand::Address(address)
+            }
+            AddressingMode::Indirect => {
+                let base = bus.read_u16(self.pc);
+                let address = bus.read_u16(base);
+                self. pc = self.pc.wrapping_add(2);
+                Operand::Address(address)
+            }
+            AddressingMode::IndirectX => {
+                let base = bus.read(self.pc);
+                let sum = base.wrapping_add(self.x);
+                let address = bus.read_u16_zp(sum);
+                self.pc = self.pc.wrapping_add(1);
+                Operand::Address(address)
+            }
+            AddressingMode::IndirectY => {
+                let base = bus.read(self.pc);
+                let address = bus.read_u16_zp(base);
+                let sum = address.wrapping_add(u16::from(self.y));
+                self.pc = self.pc.wrapping_add(1);
+                Operand::Address(sum)
+            }
+        };
+    }
+}
+
+// addressing modes
+impl Cpu {
+    pub fn accumulator(&self) -> u8 {
+        self.a
+    }
+    pub fn implied() -> () {
+    }
+    pub fn immediate<B: bus::Bus>(bus: &B, address: u16) -> u8 {
+        bus.read(address)
+    }
+    pub fn absolute<B: bus::Bus>(bus: &B, address: u16) -> u16 {
+        bus.read_u16(address)
+    }
+    pub fn zero_page<B: bus::Bus>(bus: &B, address: u16) -> u16 {
+        bus.read(address) as u16
+    }
+    pub fn relative<B: bus::Bus>(bus: &B, address: u16) -> i16 {
+        bus.read(address) as i8 as i16
+    }
 }
 
 // instructions
 impl Cpu {
     pub fn lda(&mut self, value: u8) {
         self.a = value;
+        self.set_zn(value);
     } 
-    pub fn sta(&self, bus: &mut bus::Bus, address: u16) {
+    pub fn sta<B: bus::Bus>(&self, bus: &mut B, address: u16) {
         let value = self.a;
         bus.write(value, address);
     }
-}
-
-// addressing modes
-impl Cpu {
-    pub fn immediate(value: u8) -> u8 {
-        value
+    pub fn ldx(&mut self, value: u8) {
+        self.x = value;
+        self.set_zn(value);
+    }
+    pub fn stx<B: bus::Bus>(&self, bus: &mut B, address: u16) {
+        bus.write(self.x, address);
+    }
+    pub fn ldy(&mut self, value: u8) {
+        self.y = value;
+        self.set_zn(value);
+    }
+    pub fn sty<B: bus::Bus>(&self, bus: &mut B, address: u16) {
+        bus.write(self.y, address);
+    }
+    pub fn tax(&mut self) {
+        self.x = self.a;
+        self.set_zn(self.a);
+    }
+    pub fn txa(&mut self) {
+        self.a = self.x;
+        self.set_zn(self.x);
+    }
+    pub fn tay(&mut self) {
+        self.y = self.a;
+        self.set_zn(self.a);
+    }
+    pub fn tya(&mut self) {
+        self.a = self.y;
+        self.set_zn(self.y);
+    }
+    pub fn adc(&mut self, value: u8) {
+        let sum = u16::from(self.a)
+            + u16::from(value)
+            + u16::from(self.carry());
+        self.a = sum as u8;
+        self.set_czvn_adc(sum, value);
+    }
+    pub fn sbc(&mut self, value: u8) {
+        let sum = i16::from(self.a)
+            - i16::from(value)
+            - i16::from(!self.carry());
+        self.a = sum as u8;
+        self.set_czvn_sbc(sum, value);
     }
 }
 
@@ -482,5 +630,24 @@ impl Cpu {
         else {
             self.p &= !NEGATIVE;
         }
+    }
+
+    pub fn set_zn(&mut self, result: u8) {
+        self.set_zero(result == 0);
+        self.set_negative(result & 0x80 != 0);
+    }
+    pub fn set_czvn_adc(&mut self, result: u16, memory: u8) {
+        self.set_zn(result as u8);
+        self.set_carry(result > 0xFF);
+        self.set_overflow(
+            ((result as u8 ^ self.a) & (result as u8 ^ memory) & 0x80) != 0
+        );
+    }
+    pub fn set_czvn_sbc(&mut self, result: i16, memory: u8) {
+        self.set_zn(result as u8);
+        self.set_carry(!(result < 0x00));
+        self.set_overflow(
+            ((result as u8 ^ self.a) & (result as u8 ^ !memory) & 0x80) != 0
+        );
     }
 }
