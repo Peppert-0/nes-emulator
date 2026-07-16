@@ -6,12 +6,25 @@ pub trait Bus {
         let high = u16::from(self.read(address.wrapping_add(1)));
         (high << 8) | low
     }
+    fn write(&mut self, value: u8, address: u16);
     fn read_u16_zp(&self, address: u8) -> u16 {
         let low = u16::from(self.read(u16::from(address)));
         let high = u16::from(self.read(address.wrapping_add(1) as u16));
         (high << 8) | low
     }
-    fn write(&mut self, value: u8, address: u16);
+    fn read_u16_bug(&self, address: u16) -> u16 {
+        let low = u16::from(self.read(address));
+        let high_address = if (address & 0x00FF) == 0x00FF {
+            address & 0xFF00
+        }
+        else {
+            address.wrapping_add(1)
+        };
+
+        let high = u16::from(self.read(high_address));
+
+        (high << 8) | low
+    }
 }
 
 pub struct TestBus {
@@ -30,4 +43,7 @@ impl Bus for TestBus {
     fn write(&mut self, value: u8, address: u16) {
         self.memory[address as usize] = value;
     }
+}
+
+impl TestBus {
 }

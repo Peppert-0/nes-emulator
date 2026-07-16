@@ -1,4 +1,4 @@
-name: nes-emulator
+name: ci
 
 on:
   push:

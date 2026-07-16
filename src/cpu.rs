@@ -1,5 +1,4 @@
 use std::panic::panic_any;
-
 use crate::bus;
 
 pub const OPCODES: [Opcode; 256] = [
@@ -345,11 +344,12 @@ const CARRY: u8 = 1 << 0;
 const ZERO: u8 = 1 << 1;
 const INTERRUPT: u8 = 1 << 2;
 const DECIMAL: u8 = 1 << 3;
+const BREAK: u8 = 1 << 4;
 const OVERFLOW: u8 = 1 << 6;
 const NEGATIVE: u8 = 1 << 7;
 
 #[derive(Debug)]
-enum AddressingMode {
+pub enum AddressingMode {
     ZeroPageX,
     ZeroPageY,
     ZeroPage,
@@ -706,6 +706,120 @@ impl Cpu {
         self.set_overflow((value & 0x40) != 0);
         self.set_negative((value & 0x80) != 0);
     }
+    pub fn cmp<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+        let value = bus.read(address);
+        self.set_czn_cmp(self.a, value);
+    }
+    pub fn cpx<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+        let value = bus.read(address);
+        self.set_czn_cmp(self.x, value);
+    }
+    pub fn cpy<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+        let value = bus.read(address);
+        self.set_czn_cmp(self.y, value);
+    }
+    pub fn bcc(&mut self, offset: i8) {
+        if !self.carry() {
+            self.branch(offset);
+        }
+    }
+    pub fn bcs(&mut self, offset: i8) {
+        if self.carry() {
+            self.branch(offset);
+        }
+    }
+    pub fn beq(&mut self, offset: i8) {
+        if self.zero() {
+            self.branch(offset);
+        }
+    }
+    pub fn bne(&mut self, offset: i8) {
+        if !self.zero() {
+            self.branch(offset);
+        }
+    }
+    pub fn bpl(&mut self, offset: i8) {
+        if !self.negative() {
+            self.branch(offset);
+        }
+    }
+    pub fn bmi(&mut self, offset: i8) {
+        if self.negative() {
+            self.branch(offset);
+        }
+    }
+    pub fn bvc(&mut self, offset: i8) {
+        if !self.overflow() {
+            self.branch(offset);
+        }
+    }
+    pub fn bvs(&mut self, offset: i8) {
+        if self.overflow() {
+            self.branch(offset);
+        }
+    }
+    pub fn jmp<B: bus::Bus>(&mut self, bus: &B, address: u16, mode: AddressingMode) {
+        if let AddressingMode::Absolute = mode {
+            let value = bus.read_u16(address);
+            self.pc = value;
+        }
+        else if let AddressingMode::Indirect = mode {
+            let value = bus.read_u16_bug(address);
+            self.pc = value;
+        }
+    }
+    pub fn jsr<B: bus::Bus>(&mut self, bus: &mut B, address: u16) {
+        self.push_pc(bus);
+        self.pc = address;
+    }
+    pub fn rts<B: bus::Bus>(&mut self, bus: &B) {
+        self.pull_pc(bus);
+        self.pc = self.pc.wrapping_add(1);
+    }
+    pub fn brk<B: bus::Bus>(&mut self, bus: &mut B) {
+        self.push_pc(bus);
+        self.push_flags(bus);
+        self.set_interrupt(true);
+        self.pc = 0xFFFE;
+    }
+    pub fn rti<B: bus::Bus>(&mut self, bus: &B) {
+        self.pull_flags(bus);
+        self.pull_pc(bus);
+    }
+
+    pub fn branch(&mut self, offset: i8) {
+        let result = self.pc.wrapping_add_signed(i16::from(offset));
+        self.pc = u16::from(result);
+    }
+    pub fn push<B: bus::Bus>(&mut self, bus: &mut B, value: u8) {
+        bus.write(value, 0x0100 + u16::from(self.sp));
+        self.sp = self.sp.wrapping_sub(1);
+    }
+    pub fn pull<B: bus::Bus>(&mut self, bus: &B) -> u8 {
+        self.sp = self.sp.wrapping_add(1);
+        bus.read(0x0100 + u16::from(self.sp))
+    }
+    pub fn push_pc<B: bus::Bus>(&mut self, bus: &mut B) {
+        let value = self.pc.wrapping_sub(1);
+        let high = (value >> 8) as u8;
+        let low = value as u8;
+        self.push(bus, high);
+        self.push(bus, low);
+    }
+    pub fn push_flags<B: bus::Bus>(&mut self, bus: &mut B) {
+        let flags = (self.p | BREAK) | (1 << 4);
+        self.push(bus, flags);
+    }
+    pub fn pull_pc<B: bus::Bus>(&mut self, bus: &B) {
+        let low = u16::from(self.pull(bus));
+        let high = u16::from(self.pull(bus));
+        let address = (high << 8) | low;
+        self.pc = address;
+    }
+    pub fn pull_flags<B: bus::Bus>(&mut self, bus: &B) {
+        let flags = self.pull(bus);
+        self.p = (flags & !BREAK) & !(1 << 4);
+    }
 }
 
 // flags
@@ -799,6 +913,12 @@ impl Cpu {
         self.set_overflow(
             ((result as u8 ^ self.a) & (result as u8 ^ !memory) & 0x80) != 0
         );
+    }
+    pub fn set_czn_cmp(&mut self, register_value: u8, memory_value: u8) {
+        let result = register_value.wrapping_sub(memory_value);
+        self.set_carry(register_value >= memory_value);
+        self.set_zero(register_value == memory_value);
+        self.set_negative((result & 0x80) != 0);
     }
 }
 
