@@ -1,3 +1,5 @@
+use std::panic::panic_any;
+
 use crate::bus;
 
 pub const OPCODES: [Opcode; 256] = [
@@ -363,9 +365,8 @@ enum AddressingMode {
     Relative
 }
 
-enum Operand {
+pub enum Operand {
     Address(u16),
-    Immediate(u16),
     Relative(i8),
     Accumulator,
     Implied
@@ -404,101 +405,123 @@ impl Cpu {
         self.pc = self.pc.wrapping_add(1);
         &OPCODES[opcode as usize]
     }
-    pub fn decode<B: bus::Bus>(&mut self, bus: &B, opcode: &Opcode) {
-        let operand = match opcode.mode {
+    pub fn decode<B: bus::Bus>(&mut self, bus: &B, opcode: &Opcode) -> Operand {
+        match opcode.mode {
             AddressingMode::Implicit => {
-                Operand::Implied
+                self.implicit()
             }
             AddressingMode::Accumulator => {
-                Operand::Accumulator
+                self.accumulator()
             }
             AddressingMode::Immediate => {
-                let address = self.pc;
-                self.pc = self.pc.wrapping_add(1);
-                Operand::Immediate(address)
+                self.immediate()
             }
             AddressingMode::ZeroPage => {
-                let address = bus.read(self.pc);
-                self.pc = self.pc.wrapping_add(1);
-                Operand::Address(u16::from(address))
+                self.zero_page(bus)
             }
             AddressingMode::ZeroPageX => {
-                let base = bus.read(self.pc);
-                let address = base.wrapping_add(self.x);
-                self.pc = self.pc.wrapping_add(1);
-                Operand::Address(u16::from(address))
+                self.zero_page_x(bus)
             }
             AddressingMode::ZeroPageY => {
-                let base = bus.read(self.pc);
-                let address = base.wrapping_add(self.y);
-                self.pc = self.pc.wrapping_add(1);
-                Operand::Address(u16::from(address))
+                self.zero_page_y(bus)
             }
             AddressingMode::Relative => {
-                let base = bus.read(self.pc) as i8;
-                self.pc = self.pc.wrapping_add(1);
-                Operand::Relative(base)
+                self.relative(bus)
             }
             AddressingMode::Absolute => {
-                let base = self.pc;
-                let address = bus.read_u16(base);
-                self.pc = self.pc.wrapping_add(2);
-                Operand::Address(address)
+                self.absolute(bus)
             }
             AddressingMode::AbsoluteX => {
-                let base = self.pc;
-                let address = bus.read_u16(base).wrapping_add(u16::from(self.x));
-                self. pc = self.pc.wrapping_add(2);
-                Operand::Address(address)
+                self.absolute_x(bus)
             }
             AddressingMode::AbsoluteY => {
-                let base = self.pc;
-                let address = bus.read_u16(base).wrapping_add(u16::from(self.y));
-                self.pc = self.pc.wrapping_add(2);
-                Operand::Address(address)
+                self.absolute_y(bus)
             }
             AddressingMode::Indirect => {
-                let base = bus.read_u16(self.pc);
-                let address = bus.read_u16(base);
-                self. pc = self.pc.wrapping_add(2);
-                Operand::Address(address)
+                self.indirect(bus)
             }
             AddressingMode::IndirectX => {
-                let base = bus.read(self.pc);
-                let sum = base.wrapping_add(self.x);
-                let address = bus.read_u16_zp(sum);
-                self.pc = self.pc.wrapping_add(1);
-                Operand::Address(address)
+                self.indirect_x(bus)
             }
             AddressingMode::IndirectY => {
-                let base = bus.read(self.pc);
-                let address = bus.read_u16_zp(base);
-                let sum = address.wrapping_add(u16::from(self.y));
-                self.pc = self.pc.wrapping_add(1);
-                Operand::Address(sum)
+                self.indirect_y(bus)
             }
-        };
+        }
     }
 }
 
 // addressing modes
 impl Cpu {
-    pub fn accumulator(&self) -> u8 {
-        self.a
+    pub fn implicit(&self) -> Operand {
+        Operand::Implied
     }
-    pub fn implied() -> () {
+    pub fn accumulator(&self) -> Operand {
+        Operand::Accumulator
     }
-    pub fn immediate<B: bus::Bus>(bus: &B, address: u16) -> u8 {
-        bus.read(address)
+    pub fn immediate(&mut self) -> Operand {
+        let address = self.pc;
+        self.pc = self.pc.wrapping_add(1);
+        Operand::Address(address)
     }
-    pub fn absolute<B: bus::Bus>(bus: &B, address: u16) -> u16 {
-        bus.read_u16(address)
+    pub fn zero_page<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let address = bus.read(self.pc);
+        self.pc = self.pc.wrapping_add(1);
+        Operand::Address(u16::from(address))
     }
-    pub fn zero_page<B: bus::Bus>(bus: &B, address: u16) -> u16 {
-        bus.read(address) as u16
+    pub fn zero_page_x<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = bus.read(self.pc);
+        let address = base.wrapping_add(self.x);
+        self.pc = self.pc.wrapping_add(1);
+        Operand::Address(u16::from(address))
     }
-    pub fn relative<B: bus::Bus>(bus: &B, address: u16) -> i16 {
-        bus.read(address) as i8 as i16
+    pub fn zero_page_y<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = bus.read(self.pc);
+        let address = base.wrapping_add(self.y);
+        self.pc = self.pc.wrapping_add(1);
+        Operand::Address(u16::from(address))
+    }
+    pub fn relative<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = bus.read(self.pc) as i8;
+        self.pc = self.pc.wrapping_add(1);
+        Operand::Relative(base)
+    }
+    pub fn absolute<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = self.pc;
+        let address = bus.read_u16(base);
+        self.pc = self.pc.wrapping_add(2);
+        Operand::Address(address)
+    }
+    pub fn absolute_x<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = self.pc;
+        let address = bus.read_u16(base).wrapping_add(u16::from(self.x));
+        self. pc = self.pc.wrapping_add(2);
+        Operand::Address(address)
+    }
+    pub fn absolute_y<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = self.pc;
+        let address = bus.read_u16(base).wrapping_add(u16::from(self.y));
+        self.pc = self.pc.wrapping_add(2);
+        Operand::Address(address)
+    }
+    pub fn indirect<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = bus.read_u16(self.pc);
+        let address = bus.read_u16(base);
+        self.pc = self.pc.wrapping_add(2);
+        Operand::Address(address)
+    }
+    pub fn indirect_x<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = bus.read(self.pc);
+        let sum = base.wrapping_add(self.x);
+        let address = bus.read_u16_zp(sum);
+        self.pc = self.pc.wrapping_add(1);
+        Operand::Address(address)
+    }
+    pub fn indirect_y<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = bus.read(self.pc);
+        let address = bus.read_u16_zp(base);
+        let sum = address.wrapping_add(u16::from(self.y));
+        self.pc = self.pc.wrapping_add(1);
+        Operand::Address(sum)
     }
 }
 
@@ -555,6 +578,133 @@ impl Cpu {
             - i16::from(!self.carry());
         self.a = sum as u8;
         self.set_czvn_sbc(sum, value);
+    }
+    pub fn inc<B: bus::Bus>(&mut self, bus: &mut B, address: u16) {
+        let old_value = bus.read(address);
+        let new_value = old_value.wrapping_add(1);
+        bus.write(new_value, address);
+        self.set_zn(new_value);
+    }
+    pub fn dec<B: bus::Bus>(&mut self, bus: &mut B, address: u16) {
+        let old_value = bus.read(address);
+        let new_value = old_value.wrapping_sub(1);
+        bus.write(new_value, address);
+        self.set_zn(new_value);
+    }
+    pub fn inx(&mut self) {
+        let value = self.x.wrapping_add(1);
+        self.x = value;
+        self.set_zn(value);
+    }
+    pub fn dex(&mut self) {
+        let value = self.x.wrapping_sub(1);
+        self.x = value;
+        self.set_zn(value);
+    }
+    pub fn iny(&mut self) {
+        let value = self.y.wrapping_add(1);
+        self.y = value;
+        self.set_zn(value);
+    }
+    pub fn dey(&mut self) {
+        let value = self.y.wrapping_sub(1);
+        self.y = value;
+        self.set_zn(value);
+    }
+    pub fn asl<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
+        if let Operand::Accumulator = operand {
+            let value = u16::from(self.a);
+            let result = (value << 1) as u8;
+            self.a = result;
+            self.set_carry((value & 0x80) != 0);
+            self.set_zn(result);
+        }
+        else if let Operand::Address(address) = operand {
+            let value = bus.read(address);
+            let result = value << 1;
+            bus.write(result, address);
+            self.set_carry((value & 0x80) != 0);
+            self.set_zn(result);
+        }
+    }
+    pub fn lsr<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
+        if let Operand::Accumulator = operand {
+            let value = self.a;
+            let result = value >> 1;
+            self.a = result;
+            self.set_carry((value & 0x01) != 0);
+            self.set_zero(result == 0);
+            self.set_negative(false);
+        }
+        else if let Operand::Address(address) = operand {
+            let value = bus.read(address);
+            let result = value >> 1;
+            bus.write(result, address);
+            self.set_carry((value & 0x01) != 0);
+            self.set_zero(result == 0);
+            self.set_negative(false);
+        }
+    }
+    pub fn rol<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
+        if let Operand::Accumulator = operand {
+            let value = self.a;
+            let carry = u8::from(self.carry());
+            let result = (value << 1) | carry;
+            self.a = result;
+            self.set_carry((value & 0x80) != 0);
+            self.set_zn(result);
+        }
+        else if let Operand::Address(address) = operand {
+            let value = bus.read(address);
+            let carry = u8::from(self.carry());
+            let result = (value << 1) | carry;
+            bus.write(result, address);
+            self.set_carry((value & 0x80) != 0);
+            self.set_zn(result);
+        }
+    }
+    pub fn ror<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
+        if let Operand::Accumulator = operand {
+            let value = self.a;
+            let carry = (u8::from(self.carry())) << 7;
+            let result = (value >> 1) | carry;
+            self.a = result;
+            self.set_carry((value & 0x01) != 0);
+            self.set_zn(result);
+        }
+        else if let Operand::Address(address) = operand {
+            let value = bus.read(address);
+            let carry = (u8::from(self.carry())) << 7;
+            let result = (value >> 1) | carry;
+            bus.write(result, address);
+            self.set_carry((value & 0x01) != 0);
+            self.set_zn(result);
+        }
+    }
+    pub fn and<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+        let value = bus.read(address);
+        let result = self.a & value;
+        self.a = result;
+        self.set_zn(result);
+    }
+    pub fn ora<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+        let value = bus.read(address);
+        let result = self.a | value;
+        self.a = result;
+        self.set_zn(result);
+    }
+    pub fn eor<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+        let value = bus.read(address);
+        let result = self.a ^ value;
+        self.a = result;
+        self.set_zn(result);
+    }
+    pub fn bit<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+        let value = bus.read(address);
+        let result = self.a & value;
+        self.set_zero(result == 0);
+        self.set_overflow((value & 0x40) != 0);
+        self.set_negative((value & 0x80) != 0);
     }
 }
 
@@ -649,5 +799,16 @@ impl Cpu {
         self.set_overflow(
             ((result as u8 ^ self.a) & (result as u8 ^ !memory) & 0x80) != 0
         );
+    }
+}
+
+impl Operand {
+    pub fn address(self) -> u16 {
+        if let Self::Address(addr) = self {
+            return addr;
+        }
+        else {
+            panic!("That's not an address mate")
+        };
     }
 }
