@@ -786,6 +786,51 @@ impl Cpu {
         self.pull_flags(bus);
         self.pull_pc(bus);
     }
+    pub fn pha<B: bus::Bus>(&mut self, bus: &mut B) {
+        self.push(bus, self.a);
+    }
+    pub fn pla<B: bus::Bus>(&mut self, bus: &B) {
+        let result = self.pull(bus);
+        self.a = result;
+        self.set_zn(result);
+    }
+    pub fn php<B: bus::Bus>(&mut self, bus: &mut B) {
+        self.push_flags(bus);
+    }
+    pub fn plp<B: bus::Bus>(&mut self, bus: &B) {
+        self.pull_flags(bus);
+    }
+    pub fn txs(&mut self) {
+        self.sp = self.x;
+    }
+    pub fn tsx(&mut self) {
+        self.x = self.sp;
+        self.set_zn(self.sp);
+    }
+    pub fn clc(&mut self) {
+        self.set_carry(false);
+    }
+    pub fn sec(&mut self) {
+        self.set_carry(true);
+    }
+    pub fn cli(&mut self) {
+        self.set_interrupt(false);
+    }
+    pub fn sei(&mut self) {
+        self.set_interrupt(true);
+    }
+    pub fn cld(&mut self) {
+        self.set_decimal(false);
+    }
+    pub fn sed(&mut self) {
+        self.set_decimal(true);
+    }
+    pub fn clv(&mut self) {
+        self.set_overflow(false);
+    }
+    pub fn nop() {
+        // no operation; literally does nothing
+    }
 
     pub fn branch(&mut self, offset: i8) {
         let result = self.pc.wrapping_add_signed(i16::from(offset));
