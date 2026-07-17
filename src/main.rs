@@ -19,10 +19,7 @@ fn main() {
     let mut cpu = cpu::Cpu::new();
     let mut bus = bus::TestBus::new();
 
-    bus.write(0xA9, 0xAAAA);
-    bus.write(0x01, 0xAAAB);
-
-    cpu.lda(0);
-    println!("{:08b}", cpu.status());
-    println!("{:?}", cpu.zero());
+    while true {
+        cpu.step(&mut bus);
+    }
 }

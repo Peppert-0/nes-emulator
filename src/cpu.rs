@@ -1,7 +1,7 @@
 use std::panic::panic_any;
 use crate::bus;
 
-pub const OPCODES: [Opcode; 256] = [
+pub static OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::BRK, mode:AddressingMode::Implicit, cycles:7}, // 0x00
     Opcode {instruction:Instruction::ORA, mode:AddressingMode::IndirectX, cycles:6}, // 0x01
     Opcode {instruction:Instruction::KIL, mode:AddressingMode::Implicit, cycles:0}, // 0x02
@@ -260,7 +260,7 @@ pub const OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::ISC, mode:AddressingMode::AbsoluteX, cycles:7}, // 0xFF
 ];
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Instruction {
     LDA,
     STA,
@@ -348,7 +348,7 @@ const BREAK: u8 = 1 << 4;
 const OVERFLOW: u8 = 1 << 6;
 const NEGATIVE: u8 = 1 << 7;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum AddressingMode {
     ZeroPageX,
     ZeroPageY,
@@ -381,7 +381,7 @@ pub struct Cpu {
     p: u8
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Opcode {
     instruction: Instruction,
     mode: AddressingMode,
@@ -394,18 +394,23 @@ impl Cpu {
             a: 0x00,
             x: 0x00,
             y: 0x00,
-            pc: 0x0000,
-            sp: 0x00,
-            p: 0b0000_0000
+            pc: 0xFFFC,
+            sp: 0xFD,
+            p: 0b0000_0100
         }
     }
 
-    pub fn fetch<B: bus::Bus>(&mut self, bus: &B) -> &Opcode {
+    pub fn step<B: bus::Bus>(&mut self, bus: &mut B) {
+        let opcode = self.fetch(bus);
+        self.execute(bus, opcode);
+        println!("{:?}", self.p);
+    }
+    pub fn fetch<B: bus::Bus>(&mut self, bus: &B) -> Opcode {
         let opcode = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
-        &OPCODES[opcode as usize]
+        OPCODES[opcode as usize]
     }
-    pub fn decode<B: bus::Bus>(&mut self, bus: &B, opcode: &Opcode) -> Operand {
+    pub fn decode<B: bus::Bus>(&mut self, bus: &B, opcode: Opcode) -> Operand {
         match opcode.mode {
             AddressingMode::Implicit => {
                 self.implicit()
@@ -446,6 +451,179 @@ impl Cpu {
             AddressingMode::IndirectY => {
                 self.indirect_y(bus)
             }
+        }
+    }
+    pub fn execute<B: bus::Bus>(&mut self, bus: &mut B, opcode: Opcode) {
+        let operand = self.decode(bus, opcode);
+        match opcode.instruction {
+            Instruction::LDA => {
+                self.lda(bus, operand);
+            }
+            Instruction::STA => {
+                self.sta(bus, operand);
+            }
+            Instruction::LDX => {
+                self.ldx(bus, operand);
+            }
+            Instruction::STX => {
+                self.stx(bus, operand);
+            }
+            Instruction::LDY => {
+                self.ldy(bus, operand);
+            }
+            Instruction::STY => {
+                self.sty(bus, operand);
+            }
+            Instruction::TAX => {
+                self.tax();
+            }
+            Instruction::TXA => {
+                self.txa();
+            }
+            Instruction::TAY => {
+                self.tay();
+            }
+            Instruction::TYA => {
+                self.tya();
+            }
+            Instruction::ADC => {
+                self.adc(bus, operand);
+            }
+            Instruction::SBC => {
+                self.sbc(bus, operand);
+            }
+            Instruction::INC => {
+                self.inc(bus, operand);
+            }
+            Instruction::DEC => {
+                self.dec(bus, operand);
+            }
+            Instruction::INX => {
+                self.inx();
+            }
+            Instruction::DEX => {
+                self.dex();
+            }
+            Instruction::INY => {
+                self.iny();
+            }
+            Instruction::DEY => {
+                self.dey();
+            }
+            Instruction::ASL => {
+                self.asl(bus, operand);
+            }
+            Instruction::LSR => {
+                self.lsr(bus, operand);
+            }
+            Instruction::ROL => {
+                self.rol(bus, operand);
+            }
+            Instruction::ROR => {
+                self.ror(bus, operand);
+            }
+            Instruction::AND => {
+                self.and(bus, operand);
+            }
+            Instruction::ORA => {
+                self.ora(bus, operand);
+            }
+            Instruction::EOR => {
+                self.eor(bus, operand);
+            }
+            Instruction::BIT => {
+                self.bit(bus, operand);
+            }
+            Instruction::CMP => {
+                self.cmp(bus, operand);
+            }
+            Instruction::CPX => {
+                self.cpx(bus, operand);
+            }
+            Instruction::CPY => {
+                self.cpy(bus, operand);
+            }
+            Instruction::BCC => {
+                self.bcc(operand);
+            }
+            Instruction::BCS => {
+                self.bcs(operand);
+            }
+            Instruction::BEQ => {
+                self.beq(operand);
+            }
+            Instruction::BNE => {
+                self.bne(operand);
+            }
+            Instruction::BPL => {
+                self.bpl(operand);
+            }
+            Instruction::BMI => {
+                self.bmi(operand);
+            }
+            Instruction::BVC => {
+                self.bvc(operand);
+            }
+            Instruction::BVS => {
+                self.bvs(operand);
+            }
+            Instruction::JMP => {
+                self.jmp(bus, operand, &opcode.mode);
+            }
+            Instruction::JSR => {
+                self.jsr(bus, operand);
+            }
+            Instruction::RTS => {
+                self.rts(bus);
+            }
+            Instruction::BRK => {
+                self.brk(bus);
+            }
+            Instruction::RTI => {
+                self.rti(bus);
+            }
+            Instruction::PHA => {
+                self.pha(bus);
+            }
+            Instruction::PLA => {
+                self.pla(bus);
+            }
+            Instruction::PHP => {
+                self.php(bus);
+            }
+            Instruction::PLP => {
+                self.plp(bus);
+            }
+            Instruction::TXS => {
+                self.txs();
+            }
+            Instruction::TSX => {
+                self.tsx();
+            }
+            Instruction::CLC => {
+                self.clc();
+            }
+            Instruction::SEC => {
+                self.sec();
+            }
+            Instruction::CLI => {
+                self.cli();
+            }
+            Instruction::SEI => {
+                self.sei();
+            }
+            Instruction::CLD => {
+                self.cld();
+            }
+            Instruction::SED => {
+                self.sed();
+            }
+            Instruction::CLV => {
+                self.clv();
+            }
+            Instruction::NOP => {
+            }
+            _ => {}
         }
     }
 }
@@ -527,26 +705,32 @@ impl Cpu {
 
 // instructions
 impl Cpu {
-    pub fn lda(&mut self, value: u8) {
+    pub fn lda<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let value = operand.address_value(bus);
         self.a = value;
         self.set_zn(value);
     } 
-    pub fn sta<B: bus::Bus>(&self, bus: &mut B, address: u16) {
+    pub fn sta<B: bus::Bus>(&self, bus: &mut B, operand: Operand) {
+        let address = operand.address();
         let value = self.a;
         bus.write(value, address);
     }
-    pub fn ldx(&mut self, value: u8) {
+    pub fn ldx<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let value = operand.address_value(bus);
         self.x = value;
         self.set_zn(value);
     }
-    pub fn stx<B: bus::Bus>(&self, bus: &mut B, address: u16) {
+    pub fn stx<B: bus::Bus>(&self, bus: &mut B, operand: Operand) {
+        let address = operand.address();
         bus.write(self.x, address);
     }
-    pub fn ldy(&mut self, value: u8) {
+    pub fn ldy<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let value = operand.address_value(bus);
         self.y = value;
         self.set_zn(value);
     }
-    pub fn sty<B: bus::Bus>(&self, bus: &mut B, address: u16) {
+    pub fn sty<B: bus::Bus>(&self, bus: &mut B, operand: Operand) {
+        let address = operand.address();
         bus.write(self.y, address);
     }
     pub fn tax(&mut self) {
@@ -565,27 +749,31 @@ impl Cpu {
         self.a = self.y;
         self.set_zn(self.y);
     }
-    pub fn adc(&mut self, value: u8) {
+    pub fn adc<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let value = operand.address_value(bus);
         let sum = u16::from(self.a)
             + u16::from(value)
             + u16::from(self.carry());
         self.a = sum as u8;
         self.set_czvn_adc(sum, value);
     }
-    pub fn sbc(&mut self, value: u8) {
+    pub fn sbc<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let value = operand.address_value(bus);
         let sum = i16::from(self.a)
             - i16::from(value)
             - i16::from(!self.carry());
         self.a = sum as u8;
         self.set_czvn_sbc(sum, value);
     }
-    pub fn inc<B: bus::Bus>(&mut self, bus: &mut B, address: u16) {
+    pub fn inc<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
+        let address = operand.address();
         let old_value = bus.read(address);
         let new_value = old_value.wrapping_add(1);
         bus.write(new_value, address);
         self.set_zn(new_value);
     }
-    pub fn dec<B: bus::Bus>(&mut self, bus: &mut B, address: u16) {
+    pub fn dec<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
+        let address = operand.address();
         let old_value = bus.read(address);
         let new_value = old_value.wrapping_sub(1);
         bus.write(new_value, address);
@@ -681,84 +869,100 @@ impl Cpu {
             self.set_zn(result);
         }
     }
-    pub fn and<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+    pub fn and<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let address = operand.address();
         let value = bus.read(address);
         let result = self.a & value;
         self.a = result;
         self.set_zn(result);
     }
-    pub fn ora<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+    pub fn ora<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let address = operand.address();
         let value = bus.read(address);
         let result = self.a | value;
         self.a = result;
         self.set_zn(result);
     }
-    pub fn eor<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+    pub fn eor<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let address = operand.address();
         let value = bus.read(address);
         let result = self.a ^ value;
         self.a = result;
         self.set_zn(result);
     }
-    pub fn bit<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+    pub fn bit<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let address = operand.address();
         let value = bus.read(address);
         let result = self.a & value;
         self.set_zero(result == 0);
         self.set_overflow((value & 0x40) != 0);
         self.set_negative((value & 0x80) != 0);
     }
-    pub fn cmp<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+    pub fn cmp<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let address = operand.address();
         let value = bus.read(address);
         self.set_czn_cmp(self.a, value);
     }
-    pub fn cpx<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+    pub fn cpx<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let address = operand.address();
         let value = bus.read(address);
         self.set_czn_cmp(self.x, value);
     }
-    pub fn cpy<B: bus::Bus>(&mut self, bus: &B, address: u16) {
+    pub fn cpy<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+        let address = operand.address();
         let value = bus.read(address);
         self.set_czn_cmp(self.y, value);
     }
-    pub fn bcc(&mut self, offset: i8) {
+    pub fn bcc(&mut self, operand: Operand) {
+        let offset = operand.offset();
         if !self.carry() {
             self.branch(offset);
         }
     }
-    pub fn bcs(&mut self, offset: i8) {
+    pub fn bcs(&mut self, operand: Operand) {
+        let offset = operand.offset();
         if self.carry() {
             self.branch(offset);
         }
     }
-    pub fn beq(&mut self, offset: i8) {
+    pub fn beq(&mut self, operand: Operand) {
+        let offset = operand.offset();
         if self.zero() {
             self.branch(offset);
         }
     }
-    pub fn bne(&mut self, offset: i8) {
+    pub fn bne(&mut self, operand: Operand) {
+        let offset = operand.offset();
         if !self.zero() {
             self.branch(offset);
         }
     }
-    pub fn bpl(&mut self, offset: i8) {
+    pub fn bpl(&mut self, operand: Operand) {
+        let offset = operand.offset();
         if !self.negative() {
             self.branch(offset);
         }
     }
-    pub fn bmi(&mut self, offset: i8) {
+    pub fn bmi(&mut self, operand: Operand) {
+        let offset = operand.offset();
         if self.negative() {
             self.branch(offset);
         }
     }
-    pub fn bvc(&mut self, offset: i8) {
+    pub fn bvc(&mut self, operand: Operand) {
+        let offset = operand.offset();
         if !self.overflow() {
             self.branch(offset);
         }
     }
-    pub fn bvs(&mut self, offset: i8) {
+    pub fn bvs(&mut self, operand: Operand) {
+        let offset = operand.offset();
         if self.overflow() {
             self.branch(offset);
         }
     }
-    pub fn jmp<B: bus::Bus>(&mut self, bus: &B, address: u16, mode: AddressingMode) {
+    pub fn jmp<B: bus::Bus>(&mut self, bus: &B, operand: Operand, mode: &AddressingMode) {
+        let address = operand.address();
         if let AddressingMode::Absolute = mode {
             let value = bus.read_u16(address);
             self.pc = value;
@@ -768,7 +972,8 @@ impl Cpu {
             self.pc = value;
         }
     }
-    pub fn jsr<B: bus::Bus>(&mut self, bus: &mut B, address: u16) {
+    pub fn jsr<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
+        let address = operand.address();
         self.push_pc(bus);
         self.pc = address;
     }
@@ -827,9 +1032,6 @@ impl Cpu {
     }
     pub fn clv(&mut self) {
         self.set_overflow(false);
-    }
-    pub fn nop() {
-        // no operation; literally does nothing
     }
 
     pub fn branch(&mut self, offset: i8) {
@@ -969,11 +1171,27 @@ impl Cpu {
 
 impl Operand {
     pub fn address(self) -> u16 {
-        if let Self::Address(addr) = self {
-            return addr;
+        if let Self::Address(address) = self {
+            address
         }
         else {
-            panic!("That's not an address mate")
-        };
+            panic!("Invalid operand type")
+        }
+    }
+    pub fn address_value<B: bus::Bus>(self, bus: &B) -> u8 {
+        if let Self::Address(address) = self {
+            bus.read(address)
+        }
+        else {
+            panic!("Invalid operand type")
+        }
+    }
+    pub fn offset(self) -> i8 {
+        if let Self::Relative(offset) = self {
+            offset
+        }
+        else {
+            panic!("Invalid operand type")
+        }
     }
 }
