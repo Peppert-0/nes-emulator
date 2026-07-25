@@ -1,7 +1,9 @@
 use crate::bus::Bus;
 
+mod console;
 mod cpu;
 mod bus;
+mod cartridge;
 
 fn print_opcodes(opcodes: [cpu::Opcode; 256]) {
     for (i, opcode) in opcodes.iter().enumerate() {
@@ -19,7 +21,6 @@ fn main() {
     let mut cpu = cpu::Cpu::new();
     let mut bus = bus::TestBus::new();
 
-    while true {
-        cpu.step(&mut bus);
-    }
+    let sum = 0x0800 * 3;
+    println!("{:04X}", sum)
 }

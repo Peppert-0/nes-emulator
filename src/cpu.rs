@@ -1,4 +1,3 @@
-use std::panic::panic_any;
 use crate::bus;
 
 pub static OPCODES: [Opcode; 256] = [
