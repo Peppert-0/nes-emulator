@@ -1,16 +1,18 @@
+use std::fs::File;
+
 use crate::cpu;
 use crate::bus;
 use crate::bus::Bus;
 
 pub struct console {
-    cpu: cpu::Cpu,
-    bus: bus::NesBus,
+    pub cpu: cpu::Cpu,
+    pub bus: bus::NesBus,
 }
 
 impl console {
-    fn new() -> Self {
+    pub fn new(rom: &mut File) -> Self {
         let cpu = cpu::Cpu::new();
-        let bus = bus::NesBus::new();
+        let bus = bus::NesBus::new(rom);
 
         Self { cpu, bus }
     }
