@@ -1,4 +1,4 @@
-use crate::{bus, cpu::Instruction::JMP};
+use crate::{bus};
 
 pub static OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::BRK, mode:AddressingMode::Implicit, cycles:7}, // 0x00
@@ -402,10 +402,50 @@ impl Cpu {
     pub fn trace<B: bus::Bus>(&mut self, bus: &B) -> String {
         let opcode_byte = bus.read(self.pc);
         let opcode = OPCODES[opcode_byte as usize];
-        let operand = bus.read(self.pc.wrapping_add(1));
-        let operand2 = bus.read(self.pc.wrapping_add(2));
+        let operand = match opcode.mode {
+            AddressingMode::Implicit => {
+                format!("     ")
+            }
+            AddressingMode::Accumulator => {
+                format!("     ")
+            }
+            AddressingMode::Immediate => {
+                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+            }
+            AddressingMode::ZeroPage => {
+                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+            }
+            AddressingMode::ZeroPageX => {
+                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+            }
+            AddressingMode::ZeroPageY => {
+                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+            }
+            AddressingMode::Relative => {
+                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+            }
+            AddressingMode::Absolute => {
+                format!("{:02X} {:02X}", bus.read(self.pc.wrapping_add(1)), bus.read(self.pc.wrapping_add(2)))
+            }
+            AddressingMode::AbsoluteX => {
+                format!("{:02X} {:02X}", bus.read(self.pc.wrapping_add(1)), bus.read(self.pc.wrapping_add(2)))
+            }
+            AddressingMode::AbsoluteY => {
+                format!("{:02X} {:02X}", bus.read(self.pc.wrapping_add(1)), bus.read(self.pc.wrapping_add(2)))
+            }
+            AddressingMode::Indirect => {
+                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+            }
+            AddressingMode::IndirectX => {
+                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+            }
+            AddressingMode::IndirectY => {
+                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+            }
+        };
         let instruction = opcode.instruction;
-        format!("{:04X}  {:02X} {:02X} {:02X}  {:?}", self.pc, opcode_byte, operand, operand2, instruction)
+        format!("{:04X}  {:02X} {}  {:?}     A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}", 
+            self.pc, opcode_byte, operand, instruction, self.a, self.x, self.y, self.p, self.sp)
     }
 
     pub fn reset<B: bus::Bus>(&mut self, bus: &B) {
@@ -1090,22 +1130,22 @@ impl Cpu {
     }
 
     pub fn carry(&self) -> bool {
-        self.p == CARRY
+        self.p & CARRY != 0
     }
     pub fn zero(&self) -> bool {
-        self.p == ZERO
+        self.p & ZERO != 0
     }
     pub fn interrupt(&self) -> bool {
-        self.p == INTERRUPT
+        self.p & INTERRUPT != 0
     }
     pub fn decimal(&self) -> bool {
-        self.p == DECIMAL
+        self.p & DECIMAL != 0
     }
     pub fn overflow(&self) -> bool {
-        self.p == OVERFLOW
+        self.p & OVERFLOW != 0
     }
     pub fn negative(&self) -> bool {
-        self.p == NEGATIVE
+        self.p & NEGATIVE != 0
     }
 
     pub fn set_carry(&mut self, value: bool) {

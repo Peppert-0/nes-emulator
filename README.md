@@ -10,7 +10,7 @@ The project is currently in-progress, so not all the core functionality is imple
 
 - [x] CPU
 - [x] Memory bus
-- [ ] Cartridge loading
+- [x] Cartridge loading
 - [ ] PPU
 - [ ] APU
 - [ ] Controller I/O
