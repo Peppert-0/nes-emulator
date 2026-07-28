@@ -1,4 +1,4 @@
-use crate::bus;
+use crate::{bus, cpu::Instruction::JMP};
 
 pub static OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::BRK, mode:AddressingMode::Implicit, cycles:7}, // 0x00
@@ -375,7 +375,7 @@ pub struct Cpu {
     a: u8,
     x: u8,
     y: u8, 
-    pc: u16,
+    pub pc: u16,
     sp: u8,
     p: u8
 }
@@ -399,10 +399,21 @@ impl Cpu {
         }
     }
 
+    pub fn trace<B: bus::Bus>(&mut self, bus: &B) -> String {
+        let opcode_byte = bus.read(self.pc);
+        let opcode = OPCODES[opcode_byte as usize];
+        let operand = bus.read(self.pc.wrapping_add(1));
+        let operand2 = bus.read(self.pc.wrapping_add(2));
+        let instruction = opcode.instruction;
+        format!("{:04X}  {:02X} {:02X} {:02X}  {:?}", self.pc, opcode_byte, operand, operand2, instruction)
+    }
+
+    pub fn reset<B: bus::Bus>(&mut self, bus: &B) {
+        self.pc = bus.read_u16(self.pc)
+    }
     pub fn step<B: bus::Bus>(&mut self, bus: &mut B) {
         let opcode = self.fetch(bus);
         self.execute(bus, opcode);
-        println!("{:?}", self.p);
     }
     pub fn fetch<B: bus::Bus>(&mut self, bus: &B) -> Opcode {
         let opcode = bus.read(self.pc);
@@ -442,7 +453,12 @@ impl Cpu {
                 self.absolute_y(bus)
             }
             AddressingMode::Indirect => {
-                self.indirect(bus)
+                if let Instruction::JMP = opcode.instruction {
+                    self.indirect_bug(bus)
+                }
+                else {
+                    self.indirect(bus)
+                }
             }
             AddressingMode::IndirectX => {
                 self.indirect_x(bus)
@@ -567,7 +583,7 @@ impl Cpu {
                 self.bvs(operand);
             }
             Instruction::JMP => {
-                self.jmp(bus, operand, &opcode.mode);
+                self.jmp(operand);
             }
             Instruction::JSR => {
                 self.jsr(bus, operand);
@@ -683,6 +699,12 @@ impl Cpu {
     pub fn indirect<B: bus::Bus>(&mut self, bus: &B) -> Operand {
         let base = bus.read_u16(self.pc);
         let address = bus.read_u16(base);
+        self.pc = self.pc.wrapping_add(2);
+        Operand::Address(address)
+    }
+    pub fn indirect_bug<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+        let base = bus.read_u16(self.pc);
+        let address = bus.read_u16_bug(base);
         self.pc = self.pc.wrapping_add(2);
         Operand::Address(address)
     }
@@ -960,16 +982,9 @@ impl Cpu {
             self.branch(offset);
         }
     }
-    pub fn jmp<B: bus::Bus>(&mut self, bus: &B, operand: Operand, mode: &AddressingMode) {
+    pub fn jmp(&mut self, operand: Operand) {
         let address = operand.address();
-        if let AddressingMode::Absolute = mode {
-            let value = bus.read_u16(address);
-            self.pc = value;
-        }
-        else if let AddressingMode::Indirect = mode {
-            let value = bus.read_u16_bug(address);
-            self.pc = value;
-        }
+        self.pc = address;
     }
     pub fn jsr<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let address = operand.address();

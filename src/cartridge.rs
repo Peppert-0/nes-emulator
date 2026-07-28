@@ -1,7 +1,7 @@
 use std::{fs::File, io::Read};
 
 pub struct Cartridge {
-    prg_rom: Vec<u8>,
+    pub prg_rom: Vec<u8>,
     chr: ChrMemory,
     mapper: Box<dyn Mapper>,
 }
@@ -12,36 +12,27 @@ pub enum ChrMemory {
 }
 
 pub trait Mapper {
-    fn cpu_read(&self, address: u16) -> Option<usize>;
-    fn cpu_write(&self, address: u16) -> Option<usize>;
+    fn cpu_read(&self, prg_rom: &Vec<u8>, address: u16) -> u8;
 }
 
-pub struct Nrom {}
+pub struct Nrom {
+    nrom_256: bool,
+}
 
 impl Mapper for Nrom {
-    fn cpu_read(&self, address: u16) -> Option<usize> {
+    fn cpu_read(&self, prg_rom: &Vec<u8>, address: u16) -> u8 {
         match address {
-            0x8000..=0xBFFF => {
-                Some(0)
-            }
-            0xC000..=0xFFFF => {
-                Some(0)
+            0x8000..=0xFFFF => {
+                let offset = address - 0x8000;
+                if !self.nrom_256 {
+                    prg_rom[(offset & 0x3FFF) as usize]
+                }
+                else {
+                    prg_rom[offset as usize]
+                }
             }
             _ => {
-                None
-            }
-        }
-    }
-    fn cpu_write(&self, address: u16) -> Option<usize> {
-        match address {
-            0x8000..=0xBFFF => {
-                Some(0)
-            }
-            0xC000..=0xFFFF => {
-                Some(0)
-            }
-            _ => {
-                None
+                panic!("Invalid address range")
             }
         }
     }
@@ -70,7 +61,7 @@ impl Cartridge {
 
         let mapper = match header.mapper {
             0 => {
-                Box::new(Nrom{})
+                Box::new(Nrom{nrom_256: if header.prg_rom_mult == 2 {true} else {false}})
             }
             _ => {
                 panic!("Unsupported or invalid mapper");
@@ -78,6 +69,11 @@ impl Cartridge {
         };
 
         Self { prg_rom, chr: ChrMemory::Rom(chr_rom), mapper: mapper }
+    }
+    pub fn cpu_read(&self, address: u16) -> u8 {
+        self.mapper.cpu_read(&self.prg_rom, address)
+    }
+    pub fn cpu_write(&mut self, address: u16, value: u8) {
     }
 }
 

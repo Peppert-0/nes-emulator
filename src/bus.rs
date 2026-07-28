@@ -43,9 +43,8 @@ impl Bus for NesBus {
     fn read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize],
-            _ => {
-                panic!("Invalid address range")
-            }
+            0x4020..=0xFFFF => self.cartridge.cpu_read(address),
+            _ => 0,
         }
     }
     fn write(&mut self, value: u8, address: u16) {
@@ -53,9 +52,8 @@ impl Bus for NesBus {
             0x0000..=0x1FFF => {
                 self.ram[(address & 0x07FF) as usize] = value;
             }
-            _ => {
-                panic!("Invalid address range")
-            }
+            0x4020..=0xFFFF => self.cartridge.cpu_write(address, value),
+            _ => {}
         }
     }
 }
