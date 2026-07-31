@@ -11,7 +11,7 @@ pub static OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::SLO, mode:AddressingMode::ZeroPage, cycles:5}, // 0x07
     Opcode {instruction:Instruction::PHP, mode:AddressingMode::Implicit, cycles:3}, // 0x08
     Opcode {instruction:Instruction::ORA, mode:AddressingMode::Immediate, cycles:2}, // 0x09
-    Opcode {instruction:Instruction::ASL, mode:AddressingMode::Implicit, cycles:2}, // 0x0A
+    Opcode {instruction:Instruction::ASL, mode:AddressingMode::Accumulator, cycles:2}, // 0x0A
     Opcode {instruction:Instruction::ANC, mode:AddressingMode::Immediate, cycles:2}, // 0x0B
     Opcode {instruction:Instruction::NOP, mode:AddressingMode::Absolute, cycles:4}, // 0x0C
     Opcode {instruction:Instruction::ORA, mode:AddressingMode::Absolute, cycles:4}, // 0x0D
@@ -43,7 +43,7 @@ pub static OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::RLA, mode:AddressingMode::ZeroPage, cycles:5}, // 0x27
     Opcode {instruction:Instruction::PLP, mode:AddressingMode::Implicit, cycles:4}, // 0x28
     Opcode {instruction:Instruction::AND, mode:AddressingMode::Immediate, cycles:2}, // 0x29
-    Opcode {instruction:Instruction::ROL, mode:AddressingMode::Implicit, cycles:2}, // 0x2A
+    Opcode {instruction:Instruction::ROL, mode:AddressingMode::Accumulator, cycles:2}, // 0x2A
     Opcode {instruction:Instruction::ANC, mode:AddressingMode::Immediate, cycles:2}, // 0x2B
     Opcode {instruction:Instruction::BIT, mode:AddressingMode::Absolute, cycles:4}, // 0x2C
     Opcode {instruction:Instruction::AND, mode:AddressingMode::Absolute, cycles:4}, // 0x2D
@@ -75,7 +75,7 @@ pub static OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::SRE, mode:AddressingMode::ZeroPage, cycles:5}, // 0x47
     Opcode {instruction:Instruction::PHA, mode:AddressingMode::Implicit, cycles:3}, // 0x48
     Opcode {instruction:Instruction::EOR, mode:AddressingMode::Immediate, cycles:2}, // 0x49
-    Opcode {instruction:Instruction::LSR, mode:AddressingMode::Implicit, cycles:2}, // 0x4A
+    Opcode {instruction:Instruction::LSR, mode:AddressingMode::Accumulator, cycles:2}, // 0x4A
     Opcode {instruction:Instruction::ALR, mode:AddressingMode::Immediate, cycles:2}, // 0x4B
     Opcode {instruction:Instruction::JMP, mode:AddressingMode::Absolute, cycles:3}, // 0x4C
     Opcode {instruction:Instruction::EOR, mode:AddressingMode::Absolute, cycles:4}, // 0x4D
@@ -107,7 +107,7 @@ pub static OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::RRA, mode:AddressingMode::ZeroPage, cycles:5}, // 0x67
     Opcode {instruction:Instruction::PLA, mode:AddressingMode::Implicit, cycles:4}, // 0x68
     Opcode {instruction:Instruction::ADC, mode:AddressingMode::Immediate, cycles:2}, // 0x69
-    Opcode {instruction:Instruction::ROR, mode:AddressingMode::Implicit, cycles:2}, // 0x6A
+    Opcode {instruction:Instruction::ROR, mode:AddressingMode::Accumulator, cycles:2}, // 0x6A
     Opcode {instruction:Instruction::ARR, mode:AddressingMode::Immediate, cycles:2}, // 0x6B
     Opcode {instruction:Instruction::JMP, mode:AddressingMode::Indirect, cycles:5}, // 0x6C
     Opcode {instruction:Instruction::ADC, mode:AddressingMode::Absolute, cycles:4}, // 0x6D
@@ -171,7 +171,7 @@ pub static OPCODES: [Opcode; 256] = [
     Opcode {instruction:Instruction::LAX, mode:AddressingMode::ZeroPage, cycles:3}, // 0xA7
     Opcode {instruction:Instruction::TAY, mode:AddressingMode::Implicit, cycles:2}, // 0xA8
     Opcode {instruction:Instruction::LDA, mode:AddressingMode::Immediate, cycles:2}, // 0xA9
-    Opcode {instruction:Instruction::TAX, mode:AddressingMode::Immediate, cycles:2}, // 0xAA
+    Opcode {instruction:Instruction::TAX, mode:AddressingMode::Implicit, cycles:2}, // 0xAA
     Opcode {instruction:Instruction::LAX, mode:AddressingMode::Immediate, cycles:2}, // 0xAB
     Opcode {instruction:Instruction::LDY, mode:AddressingMode::Absolute, cycles:4}, // 0xAC
     Opcode {instruction:Instruction::LDA, mode:AddressingMode::Absolute, cycles:4}, // 0xAD
@@ -344,6 +344,7 @@ const ZERO: u8 = 1 << 1;
 const INTERRUPT: u8 = 1 << 2;
 const DECIMAL: u8 = 1 << 3;
 const BREAK: u8 = 1 << 4;
+const UNUSED: u8 = 1 << 5;
 const OVERFLOW: u8 = 1 << 6;
 const NEGATIVE: u8 = 1 << 7;
 
@@ -364,6 +365,7 @@ pub enum AddressingMode {
     Relative
 }
 
+#[derive(Clone, Copy)]
 pub enum Operand {
     Address(u16),
     Relative(i8),
@@ -377,7 +379,7 @@ pub struct Cpu {
     y: u8, 
     pub pc: u16,
     sp: u8,
-    p: u8
+    pub p: u8
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -399,7 +401,7 @@ impl Cpu {
         }
     }
 
-    pub fn trace<B: bus::Bus>(&mut self, bus: &B) -> String {
+    pub fn trace<B: bus::Bus>(& self, bus: &B) -> String {
         let opcode_byte = bus.read(self.pc);
         let opcode = OPCODES[opcode_byte as usize];
         let operand = match opcode.mode {
@@ -434,7 +436,7 @@ impl Cpu {
                 format!("{:02X} {:02X}", bus.read(self.pc.wrapping_add(1)), bus.read(self.pc.wrapping_add(2)))
             }
             AddressingMode::Indirect => {
-                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+                format!("{:02X} {:02X}", bus.read(self.pc.wrapping_add(1)), bus.read(self.pc.wrapping_add(2)))
             }
             AddressingMode::IndirectX => {
                 format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
@@ -678,6 +680,37 @@ impl Cpu {
             }
             Instruction::NOP => {
             }
+            Instruction::LAX => {
+                self.lda(bus, operand);
+                self.tax();
+            }
+            Instruction::SAX => {
+                self.sax(bus, operand);
+            }
+            Instruction::DCP => {
+                self.dec(bus, operand);
+                self.cmp(bus, operand);
+            }
+            Instruction::ISC => {
+                self.inc(bus, operand);
+                self.sbc(bus, operand);
+            }
+            Instruction::SLO => {
+                self.asl(bus, operand);
+                self.ora(bus, operand);
+            }
+            Instruction::RLA => {
+                self.rol(bus, operand);
+                self.and(bus, operand);
+            }
+            Instruction::SRE => {
+                self.lsr(bus, operand);
+                self.eor(bus, operand);
+            }
+            Instruction::RRA => {
+                self.ror(bus, operand);
+                self.adc(bus, operand);
+            }
             _ => {}
         }
     }
@@ -813,18 +846,18 @@ impl Cpu {
     pub fn adc<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
         let value = operand.address_value(bus);
         let sum = u16::from(self.a)
-            + u16::from(value)
-            + u16::from(self.carry());
-        self.a = sum as u8;
+            .wrapping_add(u16::from(value))
+            .wrapping_add(u16::from(self.carry()));
         self.set_czvn_adc(sum, value);
+        self.a = sum as u8;
     }
     pub fn sbc<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
         let value = operand.address_value(bus);
         let sum = i16::from(self.a)
             - i16::from(value)
             - i16::from(!self.carry());
-        self.a = sum as u8;
         self.set_czvn_sbc(sum, value);
+        self.a = sum as u8;
     }
     pub fn inc<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let address = operand.address();
@@ -1087,6 +1120,11 @@ impl Cpu {
     pub fn clv(&mut self) {
         self.set_overflow(false);
     }
+    pub fn sax<B: bus::Bus>(&self, bus: &mut B, operand: Operand) {
+        let address = operand.address();
+        let value = self.a & self.x;
+        bus.write(value, address);
+    }
 
     pub fn branch(&mut self, offset: i8) {
         let result = self.pc.wrapping_add_signed(i16::from(offset));
@@ -1119,7 +1157,7 @@ impl Cpu {
     }
     pub fn pull_flags<B: bus::Bus>(&mut self, bus: &B) {
         let flags = self.pull(bus);
-        self.p = (flags & !BREAK) & !(1 << 4);
+        self.p = (flags & !BREAK) | UNUSED;
     }
 }
 

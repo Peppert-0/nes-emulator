@@ -1,6 +1,7 @@
 # NES Emulator
 
 An emulator for the NTSC Nintendo Entertainment System, written in Rust.
+Passes nestest with both official and illegal opcodes.
 
 ## Progress 
 
