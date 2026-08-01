@@ -1,9 +1,11 @@
 use std::fs::File;
+use std::rc::Rc;
+use std::cell::RefCell;
+use crate::Shared;
 
-use crate::cartridge::Cartridge;
+use crate::{cartridge::Cartridge, ppu::PpuRegisters};
 
 pub trait Bus {
-    fn new(rom: &mut File) -> Self;
     fn read(&self, address: u16) -> u8;
     fn read_u16(&self, address: u16) -> u16 {
         let low = u16::from(self.read(address));
@@ -30,33 +32,40 @@ pub trait Bus {
     }
 }
 
-pub struct NesBus {
+pub struct CpuBus {
     pub ram: [u8; 0x0800],
-    pub cartridge: Cartridge,
+    pub cartridge: Shared<Cartridge>,
+    pub ppu_registers: Shared<PpuRegisters>,
 }
 
-impl Bus for NesBus {
-    fn new(rom: &mut File) -> Self {
-        Self { ram: [0; 0x0800] , cartridge: Cartridge::load_from_file(rom)}
-    }
-
+impl Bus for CpuBus {
     fn read(&self, address: u16) -> u8 {
+        let cartridge = self.cartridge.borrow();
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize],
-            0x4020..=0xFFFF => self.cartridge.cpu_read(address),
+            0x4020..=0xFFFF => cartridge.cpu_read(address),
             _ => 0,
         }
     }
     fn write(&mut self, value: u8, address: u16) {
+        let mut cartridge = self.cartridge.borrow_mut();
         match address {
-            0x0000..=0x1FFF => {
-                self.ram[(address & 0x07FF) as usize] = value;
-            }
-            0x4020..=0xFFFF => self.cartridge.cpu_write(address, value),
+            0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize] = value,
+            0x4020..=0xFFFF => cartridge.cpu_write(address, value),
             _ => {}
         }
     }
 }
 
-impl NesBus {
+impl CpuBus {
+    pub fn new(cartridge: Shared<Cartridge>, ppu_registers: Shared<PpuRegisters>) -> Self {
+        Self { ram: [0; 0x0800] , cartridge, ppu_registers}
+    }
+}
+
+pub struct PpuBus {
+    pub cartridge: Shared<Cartridge>,
+    pub vram: [u8; 0x0800],
+    pub palette_ram: [u8; 0x0020],
+    pub registers: Shared<PpuRegisters>,
 }

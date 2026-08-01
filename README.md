@@ -10,14 +10,19 @@ The project is currently in-progress, so not all the core functionality is imple
 ### Core 
 
 - [x] CPU
-- [x] Memory bus
+- [x] CPU bus
 - [x] Cartridge loading
 - [ ] PPU
+- [ ] PPU bus
 - [ ] APU
 - [ ] Controller I/O
 
 ### Planned
 
 - [ ] Save states
+- [ ] MOS 6502 CPU library
+  - Trait containing all generic instructions
+  - Allows for easier development of other emulators later (Apple II, Commodore 64, Atari)
 - [ ] Game rewind
 - [ ] More mappers
+  - Support for more games

@@ -1,4 +1,4 @@
-use std::{fs::File, io::{BufRead, BufReader}, os::linux::raw::stat};
+use std::{fs::File, io::{BufRead, BufReader}};
 use nes_emulator::{console};
 
 #[derive(PartialEq)]
@@ -52,14 +52,14 @@ impl CpuState {
 }
 
 fn debug_step(console: &mut console::Console, log: String) {
-    let trace = console.cpu.trace(&console.bus);
+    let trace = console.cpu.trace(&console.cpu_bus);
     let expected = CpuState::from_log(&log);
     let actual = CpuState::from_trace(&trace);
     assert!(expected == actual,
         "\n{}\n{}", format_trace(expected, "log"),
         format_trace(actual, "trace"),
         );
-    console.cpu.step(&mut console.bus);
+    console.cpu.step(&mut console.cpu_bus);
 }
 
 fn format_trace(state: CpuState, descriptor: &str) -> String {

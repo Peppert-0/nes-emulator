@@ -450,6 +450,17 @@ impl Cpu {
             self.pc, opcode_byte, operand, instruction, self.a, self.x, self.y, self.p, self.sp)
     }
 
+    pub fn nmi_detected<B: bus::Bus>(&self, bus: &B) -> bool {
+        let nmi = bus.read(0x2000) & (1 << 7) != 0;
+        let vblank = bus.read(0x2002) & (1 << 7) != 0 ;
+        nmi && vblank
+    }
+    pub fn handle_nmi<B: bus::Bus>(&mut self, bus: &mut B) {
+        self.push_pc(bus);
+        self.push_flags(bus);
+        self.pc = bus.read_u16(0xFFFA);
+    }
+
     pub fn reset<B: bus::Bus>(&mut self, bus: &B) {
         self.pc = bus.read_u16(self.pc)
     }
