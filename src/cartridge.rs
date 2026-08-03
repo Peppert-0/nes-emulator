@@ -2,8 +2,8 @@ use std::{fs::File, io::Read};
 
 pub struct Cartridge {
     pub prg_rom: Vec<u8>,
-    chr: ChrMemory,
-    mapper: Box<dyn Mapper>,
+    pub chr: ChrMemory,
+    pub mapper: Box<dyn Mapper>,
 }
 
 pub enum ChrMemory {
@@ -13,10 +13,11 @@ pub enum ChrMemory {
 
 pub trait Mapper {
     fn cpu_read(&self, prg_rom: &Vec<u8>, address: u16) -> u8;
+    fn ppu_read(&self, chr: &ChrMemory, vram: &[u8; 2048], address: u16) -> u8;
 }
 
 pub struct Nrom {
-    nrom_256: bool,
+    header: InesHeader,
 }
 
 impl Mapper for Nrom {
@@ -24,10 +25,9 @@ impl Mapper for Nrom {
         match address {
             0x8000..=0xFFFF => {
                 let offset = address - 0x8000;
-                if !self.nrom_256 {
+                if self.header.prg_rom_mult == 1 {
                     prg_rom[(offset & 0x3FFF) as usize]
-                }
-                else {
+                } else {
                     prg_rom[offset as usize]
                 }
             }
@@ -36,6 +36,40 @@ impl Mapper for Nrom {
             }
         }
     }
+    fn ppu_read(&self, chr: &ChrMemory, vram: &[u8; 2048], address: u16) -> u8 {
+        if let ChrMemory::Rom(chr_rom) = chr {
+            match address {
+                0x0000..=0x1FFF => {
+                    chr_rom[address as usize]
+                }
+                0x2000..=0x2FFF => {
+                    let offset = address - 0x2000;
+                    if self.header.vertical_mirroring {
+                        match offset {
+                            0x0000..=0x07FF => vram[offset as usize],
+                            0x0800..=0x0FFF => vram[(offset as usize) & 0x07FF],
+                            _ => 0,
+                        }
+                    } else {
+                        match offset {
+                            0x0000..=0x03FF => vram[offset as usize],
+                            0x0400..=0x07FF => vram[(offset as usize) & 0x3FF],
+                            0x0800..=0x0BFF => vram[offset as usize],
+                            0x0C00..=0x0FFF => vram[(offset as usize) & 0x3FF],
+                            _ => 0,
+                        }
+                    }
+                }
+                0x3000..=0x3F1F => {
+                    let offset = address - 0x3000;
+                    self.ppu_read(chr, vram, offset)
+                }
+                _ => 0
+            }
+        } else {
+            0
+        }
+    } 
 }
 
 pub struct InesHeader {
@@ -61,7 +95,7 @@ impl Cartridge {
 
         let mapper = match header.mapper {
             0 => {
-                Box::new(Nrom{nrom_256: if header.prg_rom_mult == 2 {true} else {false}})
+                Box::new(Nrom{header})
             }
             _ => {
                 panic!("Unsupported or invalid mapper");

@@ -13,7 +13,7 @@ The project is currently in-progress, so not all the core functionality is imple
 - [x] CPU bus
 - [x] Cartridge loading
 - [ ] PPU
-- [ ] PPU bus
+- [x] PPU bus
 - [ ] APU
 - [ ] Controller I/O
 

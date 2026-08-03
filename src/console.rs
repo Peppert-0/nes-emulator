@@ -5,7 +5,7 @@ use std::fs::File;
 use crate::Shared;
 use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
-use crate::bus::CpuBus;
+use crate::bus::{CpuBus, PpuBus};
 use crate::ppu::{Ppu, PpuRegisters};
 
 pub struct Console {
@@ -22,7 +22,8 @@ impl Console {
         let ppu_registers = Rc::new(RefCell::new(PpuRegisters::new()));
         let cpu = Cpu::new();
         let cpu_bus = CpuBus::new(cartridge.clone(), ppu_registers.clone());
-        let ppu = Ppu::new(ppu_registers.clone());
+        let ppu_bus = PpuBus::new(cartridge.clone());
+        let ppu = Ppu::new(ppu_registers.clone(), ppu_bus);
 
         Self {cpu, cpu_bus, cartridge, ppu, ppu_registers} 
     }

@@ -1,4 +1,4 @@
-use crate::Shared;
+use crate::{Shared, bus::PpuBus};
 
 pub struct Ppu {
     v: u16,
@@ -8,6 +8,7 @@ pub struct Ppu {
     mmio: Shared<PpuRegisters>,
     dot: u16,
     scanline: u16,
+    bus: PpuBus,
 } 
 
 pub struct PpuRegisters {
@@ -26,7 +27,7 @@ const CTRL_NMI: u8 = 1 << 7;
 const STATUS_VBLANK: u8 = 1 << 7;
 
 impl Ppu {
-    pub fn new(registers: Shared<PpuRegisters>) -> Self {
+    pub fn new(registers: Shared<PpuRegisters>, bus: PpuBus) -> Self {
         Self { 
             v: 0, 
             t: 0, 
@@ -35,6 +36,7 @@ impl Ppu {
             mmio: registers, 
             dot: 0, 
             scanline: 0, 
+            bus,
         }
     }
 
