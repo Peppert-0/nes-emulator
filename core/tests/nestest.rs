@@ -1,5 +1,5 @@
 use std::{fs::File, io::{BufRead, BufReader}};
-use nes_emulator::{console};
+use core::{console};
 
 #[derive(PartialEq)]
 struct CpuState {

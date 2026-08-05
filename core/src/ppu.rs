@@ -1,4 +1,4 @@
-use crate::{Shared, bus::PpuBus};
+use crate::{Shared, bus::{Bus, PpuBus}};
 
 pub struct Ppu {
     v: u16,
@@ -9,6 +9,7 @@ pub struct Ppu {
     dot: u16,
     scanline: u16,
     bus: PpuBus,
+    oam: [u8; 256],
 } 
 
 pub struct PpuRegisters {
@@ -37,6 +38,7 @@ impl Ppu {
             dot: 0, 
             scanline: 0, 
             bus,
+            oam: [0; 256],
         }
     }
 
@@ -81,6 +83,44 @@ impl Ppu {
             _ => 0,
         }
     }
+    fn cpu_write(&mut self, address: u16, value: u8) {
+        let mut registers = self.mmio.borrow_mut();
+        match address {
+            0x2000 => registers.ppuctrl = value,
+            0x2001 => registers.ppumask = value,
+            0x2003 => registers.oamaddr = value,
+            0x2004 => registers.oamdata = value,
+            0x2005 => registers.ppuscroll = value,
+            0x2006 => registers.ppuaddr = value,
+            0x2007 => registers.ppudata = value,
+            _ => {},
+        }
+    }
+
+    fn fetch_nametable_byte(&self) -> u8 {
+        let address = 0x2000 | (self.v & 0x0FFF);
+        self.bus.read(address)
+    }
+    fn fetch_attribute_byte(&self) -> u8 {
+        let address = 0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07);
+        self.bus.read(address)
+    }
+    fn fetch_pattern_address(&self, tile: u8) -> u16 {
+        let mmio = self.mmio.borrow();
+        ((mmio.ctrl_pattern_table() as u16) << 0xC) 
+        | ((tile as u16) << 4)
+        | self.fine_y() as u16
+    }
+    fn fetch_pattern_byte_low(&self, address: u16) -> u8 {
+        self.bus.read(address)
+    }
+    fn fetch_pattern_byte_high(&self, address: u16) -> u8 {
+        self.bus.read(address + 8)
+    }
+
+    fn fine_y(&self) -> u8 {
+        ((self.v & 0x7000) >> 12) as u8
+    }
 }
 
 impl PpuRegisters {
@@ -104,5 +144,8 @@ impl PpuRegisters {
     fn set_status_vblank(&mut self, value: bool) {
         if value {self.ppustatus |= STATUS_VBLANK}
         else {self.ppustatus &= !STATUS_VBLANK}
+    }
+    fn ctrl_pattern_table(&self) -> u8 {
+        (self.ppuctrl & 0x10) >> 4
     }
 }
