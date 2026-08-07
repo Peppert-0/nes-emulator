@@ -109,6 +109,14 @@ impl Cartridge {
     }
     pub fn cpu_write(&mut self, address: u16, value: u8) {
     }
+
+    pub fn chr_slice(&self) -> &[u8] {
+        if let ChrMemory::Rom(bytes) = &self.chr {
+            &bytes
+        } else {
+            panic!("not rom")
+        }
+    }
 }
 
 impl InesHeader {

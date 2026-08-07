@@ -10,6 +10,10 @@ pub struct Ppu {
     scanline: u16,
     bus: PpuBus,
     oam: [u8; 256],
+    attribute_shift_low: u8,
+    attribute_shift_high: u8,
+    pattern_shift_low: u16,
+    pattern_shift_high: u16,
 } 
 
 pub struct PpuRegisters {
@@ -39,6 +43,10 @@ impl Ppu {
             scanline: 0, 
             bus,
             oam: [0; 256],
+            attribute_shift_low: 0,
+            attribute_shift_high: 0,
+            pattern_shift_low: 0,
+            pattern_shift_high: 0,
         }
     }
 
@@ -117,9 +125,73 @@ impl Ppu {
     fn fetch_pattern_byte_high(&self, address: u16) -> u8 {
         self.bus.read(address + 8)
     }
+    fn fetch_palette_low(&self, attribute: u8) -> u8 {
+        let quadrant = ((self.course_y() & 2) >> 1) | (self.course_x() & 2);
+        match quadrant {
+            0 => attribute & 0x01,
+            1 => (attribute & 0x04) >> 2,
+            2 => (attribute & 0x10) >> 4,
+            3 => (attribute & 0x40) >> 6,
+            _ => 0,
+        }
+    }
+    fn fetch_palette_high(&self, attribute: u8) -> u8 {
+        let quadrant = ((self.course_y() & 2) >> 1) | (self.course_x() & 2);
+        match quadrant {
+            0 => (attribute & 0x02) >> 1,
+            1 => (attribute & 0x08) >> 3,
+            2 => (attribute & 0x20) >> 5,
+            3 => (attribute & 0x80) >> 7,
+            _ => 0,
+        }
+    }
+    fn fetch_pixel(&self) -> u8 {
+        ((self.pattern_shift_low as u8) & self.x) |
+        (((self.pattern_shift_high as u8) & self.x) << 1) |
+        ((self.attribute_shift_low & self.x) << 2) |
+        ((self.attribute_shift_high & self.x) << 3)
+    }
+    fn shift_registers(&mut self) {
+        self.attribute_shift_high >>= 1;
+        self.attribute_shift_low >>= 1;
+        self.pattern_shift_high >>= 1;
+        self.pattern_shift_low >>= 1;
+    }
+
+    fn increment_horizontal(&mut self) {
+        if (self.v & 0x001F) == 31 {
+            self.v &= !0x001F;
+            self.v ^= 0x0400;
+        } else {
+            self.v += 1;
+        }
+    }
+    fn increment_vertical(&mut self) {
+        if (self.v & 0x7000) != 0x7000 {
+            self.v += 0x1000;
+        } else {
+            self.v &= !0x7000;
+            let mut y: u16 = (self.v & 0x03E0) >> 5;
+            if y == 29 {
+                y = 0;
+                self.v ^= 0x0800;
+            } else if y == 31 {
+                y = 0;
+            } else {
+                y += 1;
+            }
+            self.v = (self.v & !0x03E0) | (y << 5);
+        }
+    }
 
     fn fine_y(&self) -> u8 {
         ((self.v & 0x7000) >> 12) as u8
+    }
+    fn course_x(&self) -> u8 {
+        (self.v & 0x001F) as u8
+    }
+    fn course_y(&self) -> u8 {
+        ((self.v & 0x03E0) >> 5) as u8
     }
 }
 
