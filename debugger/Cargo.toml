@@ -1,9 +1,10 @@
 [package]
-name = "frontend"
+name = "debugger"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+ash = "0.38.0"
 bytemuck = "1.25.2"
 core = { version = "0.1.0", path = "../core" }
-sdl3 = "0.18.4"
+sdl3 = { version = "0.18.4", features = ["ash"]}

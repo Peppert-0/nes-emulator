@@ -5,11 +5,12 @@ const GREYS: [u32; 4] = [
     0xFFFFFFFF,
 ];
 
-pub fn draw_pattern_framebuffer(chr: &[u8]) -> Vec<u32> {
+pub fn draw_pattern_framebuffer(chr: &[u8], table: u8) -> Vec<u32> {
     let mut framebuffer = vec![0; 128 * 128];
     for tile_y in 0..16 {
         for tile_x in 0..16 {
-            let offset = ((tile_x + tile_y * 16) * 16) as usize;
+            let base = if table == 0 {0} else {0x1000};
+            let offset = base + ((tile_x + tile_y * 16) * 16) as usize;
             let tile = &chr[offset..offset + 16];
             let plane_0 = &tile[0..8];
             let plane_1 = &tile[8..16];
