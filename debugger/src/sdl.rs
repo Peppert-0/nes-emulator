@@ -55,16 +55,7 @@ impl Context {
             .vulkan()
             .build()?;
         let extensions = window.vulkan_instance_extensions()?;
-        let extension_names: Vec<CString> = extensions
-            .iter()
-            .map(|name| CString::new(name.as_str()))
-            .collect::<Result<_, _>>()?;
-
-        let extension_ptrs: Vec<*const i8> = extension_names
-            .iter()
-            .map(|name| name.as_ptr())
-            .collect();
-        let renderer = renderer::Renderer::new(&extension_ptrs)?;
+        let renderer = renderer::Renderer::new(extensions)?;
         let instance = renderer.instance.handle();
         let vulkan_surface = unsafe {window.vulkan_create_surface(instance)?};
 
