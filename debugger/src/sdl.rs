@@ -1,14 +1,14 @@
 use ash::vk::SurfaceKHR;
+use ash::Entry;
+use dear_imgui_rs::render;
 use sdl3::{Sdl, VideoSubsystem, event::Event, keyboard::Keycode, surface::Surface, video::{Window, WindowBuildError}};
-use crate::renderer::{self, Renderer, RendererError};
+use crate::renderer::{self, RendererError, VulkanContext};
 use std::{ffi::{CString, NulError}, io::Error, time::Duration};
 
 pub struct Context {
     pub sdl_context: Sdl,
     video_subsystem: VideoSubsystem,
     pub window: Window,
-    renderer: Renderer,
-    vulkan_surface: SurfaceKHR,
 }
 
 #[derive(Debug)]
@@ -18,6 +18,7 @@ pub enum ContextError {
     FfiNul(NulError),
     Renderer(RendererError),
     Io(std::io::Error),
+    VulkanLoad(ash::LoadingError),
 }
 
 impl From<sdl3::Error> for ContextError {
@@ -45,6 +46,11 @@ impl From<std::io::Error> for ContextError {
         Self::Io(err)
     }
 }
+impl From<ash::LoadingError> for ContextError {
+    fn from(err: ash::LoadingError) -> Self {
+        Self::VulkanLoad(err)
+    }
+}
 
 impl Context {
     pub fn new() -> Result<Self, ContextError>  {
@@ -55,17 +61,19 @@ impl Context {
             .vulkan()
             .build()?;
         let extensions = window.vulkan_instance_extensions()?;
-        let renderer = renderer::Renderer::new(extensions)?;
-        let instance = renderer.instance.handle();
-        let vulkan_surface = unsafe {window.vulkan_create_surface(instance)?};
+        let entry = unsafe { Entry::load()? };
+        let instance = VulkanContext::create_instance(&entry, extensions)?;
+        let surface_instance = ash::khr::surface::Instance::new(&entry, &instance);
+        let raw_instance = instance.handle();
+        let vulkan_surface = unsafe {window.vulkan_create_surface(raw_instance)?};
+        let vulkan_context = VulkanContext::new(entry, instance, vulkan_surface)?;
+        let (width, height) = window.size_in_pixels();
 
         Ok(
             Self {
                 sdl_context,
                 video_subsystem,
                 window,
-                renderer,
-                vulkan_surface,
             }
         )
     }
@@ -81,7 +89,6 @@ impl Context {
                     _ => {}
                 }
             }
-            // The rest of the game loop goes here...
 
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         }

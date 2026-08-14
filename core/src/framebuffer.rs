@@ -5,7 +5,23 @@ const GREYS: [u32; 4] = [
     0xFFFFFFFF,
 ];
 
-pub fn draw_pattern_framebuffer(chr: &[u8], table: u8) -> Vec<u32> {
+pub struct Framebuffer {
+    pixels: Vec<u32>,
+    width: u32,
+    height: u32,
+}
+
+impl Framebuffer {
+    pub fn new(pixels: Vec<u32>, width: u32, height: u32) -> Self {
+        Self {
+            pixels,
+            width,
+            height,
+        }
+    }
+}
+
+pub fn draw_pattern_table(chr: &[u8], table: u8) -> Framebuffer {
     let mut framebuffer = vec![0; 128 * 128];
     for tile_y in 0..16 {
         for tile_x in 0..16 {
@@ -34,5 +50,5 @@ pub fn draw_pattern_framebuffer(chr: &[u8], table: u8) -> Vec<u32> {
             }
         }
     }
-    framebuffer
+    Framebuffer::new(framebuffer, 128, 128)
 }
