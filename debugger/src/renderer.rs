@@ -1,6 +1,12 @@
 use std::{ffi::{CStr, CString, c_char}, fmt::format};
 
-use ash::{self, Entry, Instance, vk::{self, AllocationCallbacks, Device, DeviceCreateInfo, DeviceQueueCreateInfo, Extent2D, Handle, PhysicalDevice, PhysicalDeviceFeatures, PresentModeKHR, QueueFlags, SurfaceFormatKHR, SurfaceKHR, SwapchainCreateInfoKHR, SwapchainKHR}};
+use ash::{self, Entry, Instance, vk::{self, AllocationCallbacks, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Device, DeviceCreateInfo, DeviceQueueCreateInfo, Extent2D, Handle, Image, ImageAspectFlags, ImageView, ImageViewCreateInfo, ImageViewType, PhysicalDevice, PhysicalDeviceFeatures, PresentModeKHR, QueueFlags, SurfaceFormatKHR, SurfaceKHR, SwapchainCreateInfoKHR, SwapchainKHR}};
+
+pub struct Renderer {
+    context: VulkanContext,
+    swapchain: Swapchain,
+    command: Command,
+}
 
 pub struct VulkanContext {
     pub entry: ash::Entry,
@@ -8,7 +14,19 @@ pub struct VulkanContext {
     pub surface: SurfaceKHR,
     pub surface_instance: ash::khr::surface::Instance,
     pub physical_device: PhysicalDevice,
+    pub queue_index: u32,
     pub device: ash::Device,
+}
+
+pub struct Swapchain {
+    device: ash::khr::swapchain::Device,
+    swapchain: SwapchainKHR,
+    images: Vec<Image>,
+}
+
+struct Command {
+    pool: CommandPool,
+    buffer: CommandBuffer,
 }
 
 #[derive(Debug)]
@@ -48,6 +66,7 @@ impl VulkanContext {
     pub fn new(entry: Entry, instance: Instance, window_surface: SurfaceKHR) -> Result<Self, RendererError> {
         let surface_instance = ash::khr::surface::Instance::new(&entry, &instance);
         let physical_device = VulkanContext::pick_physical_device(&instance, &surface_instance, &window_surface)?;
+        let queue_index = VulkanContext::get_queue_family_index(&instance, &physical_device, &surface_instance, &window_surface)?;
         let device = VulkanContext::create_logical_device(&instance, &physical_device, &surface_instance, &window_surface)?;
 
         Ok(
@@ -57,6 +76,7 @@ impl VulkanContext {
                 surface: window_surface,
                 surface_instance,
                 physical_device,
+                queue_index,
                 device,
             }
         )
@@ -134,7 +154,7 @@ impl VulkanContext {
 
         Ok(supports_required_queue_family_properties && supports_required_extensions)
     }
-    pub fn create_logical_device(instance: &Instance, physical_device: &PhysicalDevice, surface_instance: &ash::khr::surface::Instance, surface: &SurfaceKHR) -> Result<ash::Device, RendererError> {
+    pub fn get_queue_family_index(instance: &Instance, physical_device: &PhysicalDevice, surface_instance: &ash::khr::surface::Instance, surface: &SurfaceKHR) -> Result<u32, RendererError> {
         let queue_families = unsafe { instance.get_physical_device_queue_family_properties(*physical_device) };
         let queue_family_index = queue_families.iter().enumerate()
             .position(|(index, family)| {
@@ -144,6 +164,11 @@ impl VulkanContext {
             })
             .map(|index| index as u32)
             .unwrap();
+
+        Ok(queue_family_index)
+    }
+    pub fn create_logical_device(instance: &Instance, physical_device: &PhysicalDevice, surface_instance: &ash::khr::surface::Instance, surface: &SurfaceKHR) -> Result<ash::Device, RendererError> {
+        let queue_family_index = VulkanContext::get_queue_family_index(instance, physical_device, surface_instance, surface)?;
         let queue_priority = [0.5f32];
         let device_queue_create_info = DeviceQueueCreateInfo::default()
             .queue_family_index(queue_family_index)
@@ -216,9 +241,87 @@ impl VulkanContext {
             .pre_transform(capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(presentation_mode)
+            .surface(self.surface)
             .clipped(true);
         let swapchain = unsafe { swapchain_device.create_swapchain(&swapchain_create_info, None) }?;
 
         Ok(swapchain)
+    }
+}
+
+impl Swapchain {
+    pub fn new(vulkan_context: &VulkanContext, swapchain: SwapchainKHR) -> Result<Self, RendererError> {
+        let device = ash::khr::swapchain::Device::new(&vulkan_context.instance, &vulkan_context.device);
+        let images = unsafe { device.get_swapchain_images(swapchain) }?;
+
+        Ok( Self {
+            device,
+            swapchain,
+            images,
+        })
+    }
+    fn create_image_views(vulkan_context: &VulkanContext, swapchain_images: Vec<Image>) -> Result<Vec<ImageView>, RendererError> {
+        let format = vulkan_context.pick_surface_format()?;
+        let create_info = ImageViewCreateInfo::default()
+            .view_type(ImageViewType::TYPE_2D)
+            .format(format.format)
+            .subresource_range(vk::ImageSubresourceRange { 
+                aspect_mask: ImageAspectFlags::COLOR, 
+                base_mip_level: 0, 
+                level_count: 1, 
+                base_array_layer: 0, 
+                layer_count: 1 });
+        let mut image_views: Vec<ImageView> = vec![];
+        for image in swapchain_images {
+            let create_info = create_info
+                .image(image);
+            let image_view = unsafe { vulkan_context.device.create_image_view(&create_info, None) }?;
+            image_views.push(image_view);
+        }
+
+        Ok(image_views)
+    }
+}
+
+impl Command {
+    fn new(vulkan_context: &VulkanContext) -> Result<Self, RendererError> {
+        let pool = Self::create_command_pool(vulkan_context)?;
+        let buffer = Self::create_command_buffer(vulkan_context, pool)?;
+
+        Ok( Self {
+            pool,
+            buffer,
+        })
+    }
+    fn create_command_pool(vulkan_context: &VulkanContext) -> Result<CommandPool, RendererError> {
+        let queue_family_index = vulkan_context.queue_index;
+        let create_info = CommandPoolCreateInfo::default()
+            .flags(CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+            .queue_family_index(queue_family_index);
+        let command_pool = unsafe { vulkan_context.device.create_command_pool(&create_info, None) }?;
+
+        Ok(command_pool)
+    }
+    fn create_command_buffer(vulkan_context: &VulkanContext, pool: CommandPool) -> Result<CommandBuffer, RendererError> {
+        let allocate_info = CommandBufferAllocateInfo::default()
+            .command_pool(pool)
+            .level(CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1);
+        let buffers = unsafe { vulkan_context.device.allocate_command_buffers(&allocate_info) }?;
+        let buffer = buffers[0];
+
+        Ok(buffer)
+    }
+}
+
+impl Renderer {
+    pub fn new(context: VulkanContext, swapchain: Swapchain) -> Result<Self, RendererError> {
+        let command = Command::new(&context)?;
+
+        Ok ( Self {
+            context,
+            swapchain,
+            command,
+        })
     }
 }

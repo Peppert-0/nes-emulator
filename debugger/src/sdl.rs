@@ -2,7 +2,7 @@ use ash::vk::SurfaceKHR;
 use ash::Entry;
 use dear_imgui_rs::render;
 use sdl3::{Sdl, VideoSubsystem, event::Event, keyboard::Keycode, surface::Surface, video::{Window, WindowBuildError}};
-use crate::renderer::{self, RendererError, VulkanContext};
+use crate::renderer::{self, Renderer, RendererError, VulkanContext, Swapchain};
 use std::{ffi::{CString, NulError}, io::Error, time::Duration};
 
 pub struct Context {
@@ -63,11 +63,13 @@ impl Context {
         let extensions = window.vulkan_instance_extensions()?;
         let entry = unsafe { Entry::load()? };
         let instance = VulkanContext::create_instance(&entry, extensions)?;
-        let surface_instance = ash::khr::surface::Instance::new(&entry, &instance);
         let raw_instance = instance.handle();
-        let vulkan_surface = unsafe {window.vulkan_create_surface(raw_instance)?};
+        let vulkan_surface = unsafe { window.vulkan_create_surface(raw_instance) }?;
         let vulkan_context = VulkanContext::new(entry, instance, vulkan_surface)?;
         let (width, height) = window.size_in_pixels();
+        let swapchain_khr = vulkan_context.create_swap_chain((width, height))?;
+        let swapchain = Swapchain::new(&vulkan_context, swapchain_khr)?;
+        let renderer = Renderer::new(vulkan_context, swapchain);
 
         Ok(
             Self {
