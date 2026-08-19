@@ -1,45 +1,39 @@
 const GREYS: [Rgba; 4] = [
-    Rgba {
-        R: 0x00,
-        G: 0x00,
-        B: 0x00,
-        A: 0xFF,
-    },
-    Rgba {
-        R: 0x55,
-        G: 0x55,
-        B: 0x55,
-        A: 0xFF,
+    [
+        0x00,
+        0x00,
+        0x00,
+        0xFF,
+    ],
+    [
+        0x55,
+        0x55,
+        0x55,
+        0xFF,
 
-    },
-    Rgba {
-        R: 0xAA,
-        G: 0xAA,
-        B: 0xAA,
-        A: 0xFF,
+    ],
+    [
+        0xAA,
+        0xAA,
+        0xAA,
+        0xFF,
 
-    },
-    Rgba {
-        R: 0xFF,
-        G: 0xFF,
-        B: 0xFF,
-        A: 0xFF,
+    ],
+    [
+        0xFF,
+        0xFF,
+        0xFF,
+        0xFF,
 
-    },
+    ],
 ];
 
-#[derive(Clone, Copy)]
-pub struct Rgba {
-    R: u8,
-    G: u8,
-    B: u8,
-    A: u8,
-}
+pub type Rgba = [u8; 4];
 
 pub struct Bitmap {
-    pixels: Vec<Rgba>,
-    width: u32,
-    height: u32,
+    pub pixels: Vec<Rgba>,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Bitmap {
@@ -50,6 +44,7 @@ impl Bitmap {
             height,
         }
     }
+    // TODO should be moved elsewhere at some point 
     pub fn from_pattern_table(chr: &[u8], table: u8) -> Self {
         let mut pixels: Vec<Rgba> = vec![];
         for tile_y in 0..16 {

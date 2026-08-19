@@ -1,6 +1,7 @@
 use std::{ffi::{CStr, CString, c_char}, fmt::format};
+use ash::{self, Entry, Instance, vk::{self, AllocationCallbacks, Buffer, BufferCreateFlags, BufferCreateInfo, BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Device, DeviceCreateInfo, DeviceMemory, DeviceQueueCreateInfo, Extent2D, Handle, Image, ImageAspectFlags, ImageCreateInfo, ImageTiling, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo, MemoryMapFlags, MemoryPropertyFlags, MemoryRequirements, PhysicalDevice, PhysicalDeviceFeatures, PresentModeKHR, QueueFlags, SampleCountFlags, SharingMode, SubresourceHostMemcpySizeEXT, SurfaceFormatKHR, SurfaceKHR, SwapchainCreateInfoKHR, SwapchainKHR}};
 
-use ash::{self, Entry, Instance, vk::{self, AllocationCallbacks, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, Device, DeviceCreateInfo, DeviceQueueCreateInfo, Extent2D, Handle, Image, ImageAspectFlags, ImageView, ImageViewCreateInfo, ImageViewType, PhysicalDevice, PhysicalDeviceFeatures, PresentModeKHR, QueueFlags, SurfaceFormatKHR, SurfaceKHR, SwapchainCreateInfoKHR, SwapchainKHR}};
+use crate::bitmap::{Bitmap, Rgba};
 
 pub struct Renderer {
     context: VulkanContext,
@@ -13,6 +14,7 @@ pub struct VulkanContext {
     pub instance: ash::Instance,
     pub surface: SurfaceKHR,
     pub surface_instance: ash::khr::surface::Instance,
+    pub surface_format: SurfaceFormatKHR,
     pub physical_device: PhysicalDevice,
     pub queue_index: u32,
     pub device: ash::Device,
@@ -66,6 +68,7 @@ impl VulkanContext {
     pub fn new(entry: Entry, instance: Instance, window_surface: SurfaceKHR) -> Result<Self, RendererError> {
         let surface_instance = ash::khr::surface::Instance::new(&entry, &instance);
         let physical_device = VulkanContext::pick_physical_device(&instance, &surface_instance, &window_surface)?;
+        let surface_format = Self::pick_surface_format(&surface_instance, &physical_device, &window_surface)?;
         let queue_index = VulkanContext::get_queue_family_index(&instance, &physical_device, &surface_instance, &window_surface)?;
         let device = VulkanContext::create_logical_device(&instance, &physical_device, &surface_instance, &window_surface)?;
 
@@ -75,6 +78,7 @@ impl VulkanContext {
                 instance,
                 surface: window_surface,
                 surface_instance,
+                surface_format,
                 physical_device,
                 queue_index,
                 device,
@@ -185,10 +189,10 @@ impl VulkanContext {
             .queue_create_infos(&device_queue_create_infos);
         Ok (unsafe { instance.create_device(*physical_device, &device_create_info, None) }?)
     }
-    fn pick_surface_format(&self) -> Result<SurfaceFormatKHR, RendererError> {
-        let available_formats = unsafe { self.surface_instance.get_physical_device_surface_formats(self.physical_device, self.surface) }?;
+    fn pick_surface_format(surface_instance: &ash::khr::surface::Instance, physical_device: &PhysicalDevice, surface: &SurfaceKHR) -> Result<SurfaceFormatKHR, RendererError> {
+        let available_formats = unsafe { surface_instance.get_physical_device_surface_formats(*physical_device, *surface) }?;
         let format = available_formats.iter().find(|format| {
-            format.format == vk::Format::B8G8R8A8_SRGB &&
+            format.format == vk::Format::R8G8B8A8_SRGB &&
             format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
         }).unwrap_or(&available_formats[0]);
 
@@ -224,7 +228,7 @@ impl VulkanContext {
     }
     pub fn create_swap_chain(&self, (extent_width, extent_height): (u32, u32)) -> Result<SwapchainKHR, RendererError> {
         let capabilities = unsafe { self.surface_instance.get_physical_device_surface_capabilities(self.physical_device, self.surface) }?;
-        let surface_format = self.pick_surface_format()?;
+        let surface_format = self.surface_format;
         let presentation_mode = self.pick_presentation_mode()?;
         let image_extent = self.get_image_extent((extent_width, extent_height))?;
         let min_image_count = self.pick_min_image_count()?;
@@ -261,7 +265,7 @@ impl Swapchain {
         })
     }
     fn create_image_views(vulkan_context: &VulkanContext, swapchain_images: Vec<Image>) -> Result<Vec<ImageView>, RendererError> {
-        let format = vulkan_context.pick_surface_format()?;
+        let format = vulkan_context.surface_format;
         let create_info = ImageViewCreateInfo::default()
             .view_type(ImageViewType::TYPE_2D)
             .format(format.format)
@@ -323,5 +327,64 @@ impl Renderer {
             swapchain,
             command,
         })
+    }
+    pub fn create_texture_image(&self, bitmap: Bitmap) -> Result<Image, RendererError> {
+        let bitmap_size = u64::from(bitmap.width * bitmap.height * 4);
+        let (buffer, memory) = self.create_staging_buffer(bitmap_size)?;
+        let data = unsafe { self.context.device.map_memory(memory, 0, bitmap_size, MemoryMapFlags::empty()) }?;
+        unsafe { std::ptr::copy_nonoverlapping(bitmap.pixels.as_ptr(), data as *mut [u8; 4], bitmap_size as usize);
+        self.context.device.unmap_memory(memory); };
+        let create_info = ImageCreateInfo::default()
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(self.context.surface_format.format)
+            .extent(vk::Extent3D { width: bitmap.width, height: bitmap.height, depth: 1 })
+            .mip_levels(1)
+            .array_layers(1)
+            .samples(SampleCountFlags::TYPE_1)
+            .tiling(ImageTiling::OPTIMAL)
+            .usage(ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED)
+            .sharing_mode(SharingMode::EXCLUSIVE);
+        let image = unsafe { self.context.device.create_image(&create_info, None) }?;
+        let memory_requirements = unsafe { self.context.device.get_buffer_memory_requirements(buffer) };
+        let allocate_info = MemoryAllocateInfo::default()
+            .allocation_size(memory_requirements.size)
+            .memory_type_index(self.get_memory_type_index(
+                    memory_requirements.memory_type_bits,
+                    MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT)?);
+        let image_memory = unsafe { self.context.device.allocate_memory(&allocate_info, None) }?;
+        unsafe { self.context.device.bind_image_memory(image, image_memory, 0) }?;
+
+        Ok(image)
+    }
+    fn create_staging_buffer(&self, size: u64) -> Result<(vk::Buffer, DeviceMemory), RendererError> {
+        let create_info = BufferCreateInfo::default()
+            .size(size)
+            .usage(BufferUsageFlags::TRANSFER_SRC)
+            .sharing_mode(SharingMode::EXCLUSIVE);
+        let buffer = unsafe { self.context.device.create_buffer(&create_info, None) }?;
+        let memory_requirements = unsafe { self.context.device.get_buffer_memory_requirements(buffer) };
+        let allocate_info = MemoryAllocateInfo::default()
+            .allocation_size(memory_requirements.size)
+            .memory_type_index(self.get_memory_type_index(
+                    memory_requirements.memory_type_bits,
+                    MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT)?);
+        let buffer_memory = unsafe { self.context.device.allocate_memory(&allocate_info, None) }?;
+        unsafe { self.context.device.bind_buffer_memory(buffer, buffer_memory, 0) }?;
+
+        Ok((buffer, buffer_memory))
+    }
+    fn get_memory_type_index(&self, type_filter: u32, properties: MemoryPropertyFlags) -> Result<u32, RendererError> {
+        let memory_properties = unsafe {
+            self.context.instance.get_physical_device_memory_properties(self.context.physical_device) };
+        let property_index = memory_properties.memory_types.iter()
+            .enumerate()
+            .find(|(index, property)| {
+                property.heap_index == type_filter &&
+                property.property_flags == properties
+            })
+            .map(|(index, property)| index as u32)
+            .expect("No suitable memory type found");
+
+        Ok(property_index)
     }
 }
