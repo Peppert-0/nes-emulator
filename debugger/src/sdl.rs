@@ -9,6 +9,7 @@ pub struct Context {
     pub sdl_context: Sdl,
     video_subsystem: VideoSubsystem,
     pub window: Window,
+    pub renderer: Renderer,
 }
 
 #[derive(Debug)]
@@ -65,17 +66,18 @@ impl Context {
         let instance = VulkanContext::create_instance(&entry, extensions)?;
         let raw_instance = instance.handle();
         let vulkan_surface = unsafe { window.vulkan_create_surface(raw_instance) }?;
-        let vulkan_context = VulkanContext::new(entry, instance, vulkan_surface)?;
+        let mut vulkan_context = VulkanContext::new(entry, instance, vulkan_surface)?;
         let (width, height) = window.size_in_pixels();
         let swapchain_khr = vulkan_context.create_swap_chain((width, height))?;
         let swapchain = Swapchain::new(&vulkan_context, swapchain_khr)?;
-        let renderer = Renderer::new(vulkan_context, swapchain);
+        let renderer = Renderer::new(vulkan_context, swapchain)?;
 
         Ok(
             Self {
                 sdl_context,
                 video_subsystem,
                 window,
+                renderer,
             }
         )
     }

@@ -15,6 +15,7 @@ pub struct VulkanContext {
     pub surface: SurfaceKHR,
     pub surface_instance: ash::khr::surface::Instance,
     pub surface_format: SurfaceFormatKHR,
+    pub surface_extent: Extent2D,
     pub physical_device: PhysicalDevice,
     pub queue_index: u32,
     pub device: ash::Device,
@@ -71,6 +72,7 @@ impl VulkanContext {
         let surface_format = Self::pick_surface_format(&surface_instance, &physical_device, &window_surface)?;
         let queue_index = VulkanContext::get_queue_family_index(&instance, &physical_device, &surface_instance, &window_surface)?;
         let device = VulkanContext::create_logical_device(&instance, &physical_device, &surface_instance, &window_surface)?;
+        let surface_extent = Extent2D::default();
 
         Ok(
             Self {
@@ -79,6 +81,7 @@ impl VulkanContext {
                 surface: window_surface,
                 surface_instance,
                 surface_format,
+                surface_extent,
                 physical_device,
                 queue_index,
                 device,
@@ -206,15 +209,17 @@ impl VulkanContext {
 
         Ok(*presentation_mode)
     }
-    pub fn get_image_extent(&self, (width, height): (u32, u32)) -> Result<Extent2D, RendererError> {
+    pub fn get_image_extent(&mut self, (width, height): (u32, u32)) -> Result<Extent2D, RendererError> {
         let capabilities = unsafe { self.surface_instance.get_physical_device_surface_capabilities(self.physical_device, self.surface) }?;
         if capabilities.current_extent.width != u32::MAX {
             Ok(capabilities.current_extent)
         } else {
-            Ok( Extent2D {
+            let extent =  Extent2D {
             width : width.clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width),
             height : height.clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height),
-            })
+            };
+            self.surface_extent = extent;
+            Ok(extent)
         }
     }
     fn pick_min_image_count(&self) -> Result<u32, RendererError> {
@@ -226,7 +231,7 @@ impl VulkanContext {
 
         Ok(min_image_count)
     }
-    pub fn create_swap_chain(&self, (extent_width, extent_height): (u32, u32)) -> Result<SwapchainKHR, RendererError> {
+    pub fn create_swap_chain(&mut self, (extent_width, extent_height): (u32, u32)) -> Result<SwapchainKHR, RendererError> {
         let capabilities = unsafe { self.surface_instance.get_physical_device_surface_capabilities(self.physical_device, self.surface) }?;
         let surface_format = self.surface_format;
         let presentation_mode = self.pick_presentation_mode()?;
@@ -328,33 +333,38 @@ impl Renderer {
             command,
         })
     }
-    pub fn create_texture_image(&self, bitmap: Bitmap) -> Result<Image, RendererError> {
+    fn copy_buffer_to_swapchain(&self, buffer: vk::Buffer) -> Result<(), RendererError> {
+        let region = vk::BufferImageCopy::default()
+            .buffer_offset(0)
+            .buffer_row_length(0)
+            .buffer_image_height(0)
+            .image_extent(vk::Extent3D {
+                width: self.context.surface_extent.width,
+                height: self.context.surface_extent.height,
+                depth: 1,
+            });
+        let images = &self.swapchain.images;
+        let (index, suboptimal) = unsafe { self.swapchain.device.acquire_next_image(
+            self.swapchain.swapchain, 
+            100, 
+            vk::Semaphore::null(), 
+            vk::Fence::null()) }?;
+        unsafe { self.context.device.cmd_copy_buffer_to_image(
+            self.command.buffer, 
+            buffer, 
+            images[index as usize], 
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL, 
+            &[region]) };
+        Ok(())
+    }
+    pub fn load_bitmap(&self, bitmap: Bitmap) -> Result<(), RendererError> {
         let bitmap_size = u64::from(bitmap.width * bitmap.height * 4);
         let (buffer, memory) = self.create_staging_buffer(bitmap_size)?;
         let data = unsafe { self.context.device.map_memory(memory, 0, bitmap_size, MemoryMapFlags::empty()) }?;
         unsafe { std::ptr::copy_nonoverlapping(bitmap.pixels.as_ptr(), data as *mut [u8; 4], bitmap_size as usize);
         self.context.device.unmap_memory(memory); };
-        let create_info = ImageCreateInfo::default()
-            .image_type(vk::ImageType::TYPE_2D)
-            .format(self.context.surface_format.format)
-            .extent(vk::Extent3D { width: bitmap.width, height: bitmap.height, depth: 1 })
-            .mip_levels(1)
-            .array_layers(1)
-            .samples(SampleCountFlags::TYPE_1)
-            .tiling(ImageTiling::OPTIMAL)
-            .usage(ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED)
-            .sharing_mode(SharingMode::EXCLUSIVE);
-        let image = unsafe { self.context.device.create_image(&create_info, None) }?;
-        let memory_requirements = unsafe { self.context.device.get_buffer_memory_requirements(buffer) };
-        let allocate_info = MemoryAllocateInfo::default()
-            .allocation_size(memory_requirements.size)
-            .memory_type_index(self.get_memory_type_index(
-                    memory_requirements.memory_type_bits,
-                    MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT)?);
-        let image_memory = unsafe { self.context.device.allocate_memory(&allocate_info, None) }?;
-        unsafe { self.context.device.bind_image_memory(image, image_memory, 0) }?;
-
-        Ok(image)
+        self.copy_buffer_to_swapchain(buffer)?;
+        Ok(())
     }
     fn create_staging_buffer(&self, size: u64) -> Result<(vk::Buffer, DeviceMemory), RendererError> {
         let create_info = BufferCreateInfo::default()
