@@ -1,4 +1,7 @@
-use crate::{Shared, bus::{Bus, PpuBus}};
+use crate::{
+    Shared,
+    bus::{Bus, PpuBus},
+};
 
 pub struct Ppu {
     v: u16,
@@ -14,7 +17,7 @@ pub struct Ppu {
     attribute_shift_high: u8,
     pattern_shift_low: u16,
     pattern_shift_high: u16,
-} 
+}
 
 pub struct PpuRegisters {
     ppuctrl: u8,
@@ -33,14 +36,14 @@ const STATUS_VBLANK: u8 = 1 << 7;
 
 impl Ppu {
     pub fn new(registers: Shared<PpuRegisters>, bus: PpuBus) -> Self {
-        Self { 
-            v: 0, 
-            t: 0, 
-            x: 0, 
+        Self {
+            v: 0,
+            t: 0,
+            x: 0,
             w: false,
-            mmio: registers, 
-            dot: 0, 
-            scanline: 0, 
+            mmio: registers,
+            dot: 0,
+            scanline: 0,
             bus,
             oam: [0; 256],
             attribute_shift_low: 0,
@@ -82,7 +85,7 @@ impl Ppu {
                 registers.set_status_vblank(false);
                 self.w = false;
                 status
-            },
+            }
             0x2003 => registers.oamaddr,
             0x2004 => registers.oamdata,
             0x2005 => registers.ppuscroll,
@@ -101,7 +104,7 @@ impl Ppu {
             0x2005 => registers.ppuscroll = value,
             0x2006 => registers.ppuaddr = value,
             0x2007 => registers.ppudata = value,
-            _ => {},
+            _ => {}
         }
     }
 
@@ -115,9 +118,7 @@ impl Ppu {
     }
     fn fetch_pattern_address(&self, tile: u8) -> u16 {
         let mmio = self.mmio.borrow();
-        ((mmio.ctrl_pattern_table() as u16) << 0xC) 
-        | ((tile as u16) << 4)
-        | self.fine_y() as u16
+        ((mmio.ctrl_pattern_table() as u16) << 0xC) | ((tile as u16) << 4) | self.fine_y() as u16
     }
     fn fetch_pattern_byte_low(&self, address: u16) -> u8 {
         self.bus.read(address)
@@ -146,10 +147,10 @@ impl Ppu {
         }
     }
     fn fetch_pixel(&self) -> u8 {
-        ((self.pattern_shift_low as u8) & self.x) |
-        (((self.pattern_shift_high as u8) & self.x) << 1) |
-        ((self.attribute_shift_low & self.x) << 2) |
-        ((self.attribute_shift_high & self.x) << 3)
+        ((self.pattern_shift_low as u8) & self.x)
+            | (((self.pattern_shift_high as u8) & self.x) << 1)
+            | ((self.attribute_shift_low & self.x) << 2)
+            | ((self.attribute_shift_high & self.x) << 3)
     }
     fn shift_registers(&mut self) {
         self.attribute_shift_high >>= 1;
@@ -197,25 +198,31 @@ impl Ppu {
 
 impl PpuRegisters {
     pub fn new() -> Self {
-        Self { 
-            ppuctrl: 0, 
-            ppumask: 0, 
-            ppustatus: 0, 
-            oamaddr: 0, 
-            oamdata: 0, 
-            ppuscroll: 0, 
-            ppuaddr: 0, 
-            ppudata: 0, 
+        Self {
+            ppuctrl: 0,
+            ppumask: 0,
+            ppustatus: 0,
+            oamaddr: 0,
+            oamdata: 0,
+            ppuscroll: 0,
+            ppuaddr: 0,
+            ppudata: 0,
         }
     }
 
     fn set_ctrl_nmi(&mut self, value: bool) {
-        if value {self.ppuctrl |= CTRL_NMI}
-        else {self.ppuctrl &= !CTRL_NMI}
+        if value {
+            self.ppuctrl |= CTRL_NMI
+        } else {
+            self.ppuctrl &= !CTRL_NMI
+        }
     }
     fn set_status_vblank(&mut self, value: bool) {
-        if value {self.ppustatus |= STATUS_VBLANK}
-        else {self.ppustatus &= !STATUS_VBLANK}
+        if value {
+            self.ppustatus |= STATUS_VBLANK
+        } else {
+            self.ppustatus &= !STATUS_VBLANK
+        }
     }
     fn ctrl_pattern_table(&self) -> u8 {
         (self.ppuctrl & 0x10) >> 4

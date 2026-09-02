@@ -1,11 +1,11 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::fs::File;
+use std::rc::Rc;
 
 use crate::Shared;
+use crate::bus::{CpuBus, PpuBus};
 use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
-use crate::bus::{CpuBus, PpuBus};
 use crate::ppu::{Ppu, PpuRegisters};
 
 pub struct Console {
@@ -25,6 +25,12 @@ impl Console {
         let ppu_bus = PpuBus::new(cartridge.clone());
         let ppu = Ppu::new(ppu_registers.clone(), ppu_bus);
 
-        Self {cpu, cpu_bus, cartridge, ppu, ppu_registers} 
+        Self {
+            cpu,
+            cpu_bus,
+            cartridge,
+            ppu,
+            ppu_registers,
+        }
     }
 }

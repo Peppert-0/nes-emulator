@@ -39,9 +39,7 @@ impl Mapper for Nrom {
     fn ppu_read(&self, chr: &ChrMemory, vram: &[u8; 2048], address: u16) -> u8 {
         if let ChrMemory::Rom(chr_rom) = chr {
             match address {
-                0x0000..=0x1FFF => {
-                    chr_rom[address as usize]
-                }
+                0x0000..=0x1FFF => chr_rom[address as usize],
                 0x2000..=0x2FFF => {
                     let offset = address - 0x2000;
                     if self.header.vertical_mirroring {
@@ -64,12 +62,12 @@ impl Mapper for Nrom {
                     let offset = address - 0x3000;
                     self.ppu_read(chr, vram, offset)
                 }
-                _ => 0
+                _ => 0,
             }
         } else {
             0
         }
-    } 
+    }
 }
 
 pub struct InesHeader {
@@ -87,28 +85,31 @@ impl Cartridge {
         let header = InesHeader::parse(&mut bytes);
 
         let mut prg_start = 0x0010u16;
-        if header.trainer {prg_start += 512};
+        if header.trainer {
+            prg_start += 512
+        };
         let prg_end = prg_start + (0x4000 * u16::from(header.prg_rom_mult));
         let prg_rom: Vec<u8> = bytes[prg_start as usize..prg_end as usize].to_vec();
         let chr_end = prg_end + (0x2000 * u16::from(header.chr_rom_mult));
         let chr_rom: Vec<u8> = bytes[prg_end as usize..chr_end as usize].to_vec();
 
         let mapper = match header.mapper {
-            0 => {
-                Box::new(Nrom{header})
-            }
+            0 => Box::new(Nrom { header }),
             _ => {
                 panic!("Unsupported or invalid mapper");
             }
         };
 
-        Self { prg_rom, chr: ChrMemory::Rom(chr_rom), mapper: mapper }
+        Self {
+            prg_rom,
+            chr: ChrMemory::Rom(chr_rom),
+            mapper: mapper,
+        }
     }
     pub fn cpu_read(&self, address: u16) -> u8 {
         self.mapper.cpu_read(&self.prg_rom, address)
     }
-    pub fn cpu_write(&mut self, address: u16, value: u8) {
-    }
+    pub fn cpu_write(&mut self, address: u16, value: u8) {}
 
     pub fn chr_slice(&self) -> &[u8] {
         if let ChrMemory::Rom(bytes) = &self.chr {

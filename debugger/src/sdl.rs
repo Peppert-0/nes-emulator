@@ -1,9 +1,19 @@
-use ash::vk::SurfaceKHR;
+use crate::renderer::{self, Renderer, RendererError, Swapchain, VulkanContext};
 use ash::Entry;
+use ash::vk::SurfaceKHR;
 use dear_imgui_rs::render;
-use sdl3::{Sdl, VideoSubsystem, event::Event, keyboard::Keycode, surface::Surface, video::{Window, WindowBuildError}};
-use crate::renderer::{self, Renderer, RendererError, VulkanContext, Swapchain};
-use std::{ffi::{CString, NulError}, io::Error, time::Duration};
+use sdl3::{
+    Sdl, VideoSubsystem,
+    event::Event,
+    keyboard::Keycode,
+    surface::Surface,
+    video::{Window, WindowBuildError},
+};
+use std::{
+    ffi::{CString, NulError},
+    io::Error,
+    time::Duration,
+};
 
 pub struct Context {
     pub sdl_context: Sdl,
@@ -54,10 +64,11 @@ impl From<ash::LoadingError> for ContextError {
 }
 
 impl Context {
-    pub fn new() -> Result<Self, ContextError>  {
+    pub fn new() -> Result<Self, ContextError> {
         let sdl_context = sdl3::init()?;
         let video_subsystem = sdl_context.video()?;
-        let window = video_subsystem.window("NES Debugger", 800, 600)
+        let window = video_subsystem
+            .window("NES Debugger", 800, 600)
             .resizable()
             .vulkan()
             .build()?;
@@ -72,24 +83,23 @@ impl Context {
         let swapchain = Swapchain::new(&vulkan_context, swapchain_khr)?;
         let renderer = Renderer::new(vulkan_context, swapchain)?;
 
-        Ok(
-            Self {
-                sdl_context,
-                video_subsystem,
-                window,
-                renderer,
-            }
-        )
+        Ok(Self {
+            sdl_context,
+            video_subsystem,
+            window,
+            renderer,
+        })
     }
     pub fn main_loop(&mut self) -> Result<(), ContextError> {
         let mut event_pump = self.sdl_context.event_pump()?;
         'running: loop {
             for event in event_pump.poll_iter() {
                 match event {
-                    Event::Quit {..} |
-                    Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                        break 'running Ok(())
-                    },
+                    Event::Quit { .. }
+                    | Event::KeyDown {
+                        keycode: Some(Keycode::Escape),
+                        ..
+                    } => break 'running Ok(()),
                     _ => {}
                 }
             }
@@ -97,5 +107,4 @@ impl Context {
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         }
     }
-} 
-
+}

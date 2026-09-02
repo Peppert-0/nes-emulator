@@ -1,5 +1,8 @@
-use std::{fs::File, io::{BufRead, BufReader}};
-use core::{console};
+use core::console;
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+};
 
 #[derive(PartialEq)]
 struct CpuState {
@@ -19,8 +22,7 @@ impl CpuState {
         let mut instruction = line[16..=18].to_string();
         instruction = if instruction == String::from("ISC") {
             String::from("ISB")
-        }
-        else {
+        } else {
             instruction
         };
 
@@ -55,10 +57,12 @@ fn debug_step(console: &mut console::Console, log: String) {
     let trace = console.cpu.trace(&console.cpu_bus);
     let expected = CpuState::from_log(&log);
     let actual = CpuState::from_trace(&trace);
-    assert!(expected == actual,
-        "\n{}\n{}", format_trace(expected, "log"),
+    assert!(
+        expected == actual,
+        "\n{}\n{}",
+        format_trace(expected, "log"),
         format_trace(actual, "trace"),
-        );
+    );
     console.cpu.step(&mut console.cpu_bus);
 }
 
@@ -77,7 +81,7 @@ fn format_trace(state: CpuState, descriptor: &str) -> String {
         state.y,
         state.p,
         state.sp,
-        )
+    )
 }
 
 #[test]
