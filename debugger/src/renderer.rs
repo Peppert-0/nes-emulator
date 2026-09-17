@@ -4,12 +4,12 @@ use ash::{
         self, AllocationCallbacks, Buffer, BufferCreateFlags, BufferCreateInfo, BufferUsageFlags,
         CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool,
         CommandPoolCreateFlags, CommandPoolCreateInfo, Device, DeviceCreateInfo, DeviceMemory,
-        DeviceQueueCreateInfo, Extent2D, Handle, Image, ImageAspectFlags, ImageCreateInfo,
-        ImageTiling, ImageUsageFlags, ImageView, ImageViewCreateInfo, ImageViewType,
-        MemoryAllocateInfo, MemoryMapFlags, MemoryPropertyFlags, MemoryRequirements,
+        DeviceQueueCreateInfo, Extent2D, FenceCreateInfo, Handle, Image, ImageAspectFlags,
+        ImageCreateInfo, ImageTiling, ImageUsageFlags, ImageView, ImageViewCreateInfo,
+        ImageViewType, MemoryAllocateInfo, MemoryMapFlags, MemoryPropertyFlags, MemoryRequirements,
         PhysicalDevice, PhysicalDeviceFeatures, PresentModeKHR, QueueFlags, SampleCountFlags,
-        SharingMode, SubresourceHostMemcpySizeEXT, SurfaceFormatKHR, SurfaceKHR,
-        SwapchainCreateInfoKHR, SwapchainKHR,
+        SemaphoreCreateInfo, SharingMode, SubresourceHostMemcpySizeEXT, SurfaceFormatKHR,
+        SurfaceKHR, SwapchainCreateInfoKHR, SwapchainKHR,
     },
 };
 use std::{
@@ -23,6 +23,7 @@ pub struct Renderer {
     context: VulkanContext,
     swapchain: Swapchain,
     command: Command,
+    sync: Sync,
 }
 
 pub struct VulkanContext {
@@ -47,6 +48,12 @@ pub struct Swapchain {
 struct Command {
     pool: CommandPool,
     buffer: CommandBuffer,
+}
+
+struct Sync {
+    image_available_semaphore: vk::Semaphore,
+    copy_finished_semaphore: vk::Semaphore,
+    in_flight_fence: vk::Fence,
 }
 
 #[derive(Debug)]
@@ -238,7 +245,6 @@ impl VulkanContext {
             })
             .map(|index| index as u32)
             .unwrap();
-
         Ok(queue_family_index)
     }
     pub fn create_logical_device(
@@ -461,15 +467,42 @@ impl Command {
     }
 }
 
+impl Sync {
+    fn new(context: &VulkanContext) -> Result<Self, RendererError> {
+        let image_available_semaphore = Self::create_semaphore(&context)?;
+        let copy_finished_semaphore = Self::create_semaphore(&context)?;
+        let in_flight_fence = Self::create_fence(&context)?;
+
+        Ok(Self {
+            image_available_semaphore,
+            copy_finished_semaphore,
+            in_flight_fence,
+        })
+    }
+    fn create_semaphore(context: &VulkanContext) -> Result<vk::Semaphore, RendererError> {
+        Ok(unsafe {
+            context
+                .device
+                .create_semaphore(&SemaphoreCreateInfo::default(), None)
+        }?)
+    }
+    fn create_fence(context: &VulkanContext) -> Result<vk::Fence, RendererError> {
+        let create_info = FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
+        Ok(unsafe { context.device.create_fence(&create_info, None) }?)
+    }
+}
+
 impl Renderer {
     pub fn new(context: VulkanContext, mut swapchain: Swapchain) -> Result<Self, RendererError> {
         let command = Command::new(&context)?;
         swapchain.next_image_index = swapchain.get_next_image_index()?;
+        let sync = Sync::new(&context)?;
 
         Ok(Self {
             context,
             swapchain,
             command,
+            sync,
         })
     }
     pub fn present(&self) -> Result<(), RendererError> {
@@ -491,6 +524,24 @@ impl Renderer {
     }
     fn finish_recording_commands(&self) -> Result<(), RendererError> {
         unsafe { self.context.device.end_command_buffer(self.command.buffer) }?;
+        Ok(())
+    }
+    fn submit_queue(&self) -> Result<(), RendererError> {
+        let queue = unsafe {
+            self.context
+                .device
+                .get_device_queue(self.context.queue_index, 0)
+        };
+        let buffer_submit_info = vk::CommandBufferSubmitInfo::default()
+            .command_buffer(self.command.buffer)
+            .device_mask(0);
+        let buffer_submit_infos = &[buffer_submit_info];
+        let submit_info = vk::SubmitInfo2::default().command_buffer_infos(buffer_submit_infos);
+        unsafe {
+            self.context
+                .device
+                .queue_submit2(queue, &[submit_info], vk::Fence::null())
+        }?;
         Ok(())
     }
     fn transition_image_layout(
