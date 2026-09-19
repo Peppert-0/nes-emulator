@@ -131,7 +131,7 @@ impl VulkanContext {
         extensions: Vec<String>,
     ) -> Result<Instance, RendererError> {
         let app_info = vk::ApplicationInfo {
-            api_version: vk::make_api_version(0, 1, 0, 0),
+            api_version: vk::make_api_version(0, 1, 3, 0),
             ..Default::default()
         };
         let extension_names: Vec<CString> = extensions
@@ -265,12 +265,15 @@ impl VulkanContext {
             .queue_priorities(&queue_priority);
         let device_queue_create_infos = [device_queue_create_info];
         let device_features = PhysicalDeviceFeatures::default();
+        let mut sync2_features =
+            vk::PhysicalDeviceSynchronization2Features::default().synchronization2(true);
         let enabled_extensions: &[&CStr] = &[ash::khr::swapchain::NAME];
         let enabled_extensions_ptrs = enabled_extensions.as_c_char_array();
         let device_create_info = DeviceCreateInfo::default()
             .enabled_features(&device_features)
             .enabled_extension_names(&enabled_extensions_ptrs)
-            .queue_create_infos(&device_queue_create_infos);
+            .queue_create_infos(&device_queue_create_infos)
+            .push_next(&mut sync2_features);
         Ok(unsafe { instance.create_device(*physical_device, &device_create_info, None) }?)
     }
     fn pick_surface_format(
@@ -390,17 +393,6 @@ impl Swapchain {
             next_image_index,
         })
     }
-    fn get_next_image_index(&self) -> Result<u32, RendererError> {
-        let (index, suboptimal) = unsafe {
-            self.device.acquire_next_image(
-                self.swapchain,
-                100,
-                vk::Semaphore::null(),
-                vk::Fence::null(),
-            )
-        }?;
-        Ok(index)
-    }
     fn create_image_views(
         vulkan_context: &VulkanContext,
         swapchain_images: Vec<Image>,
@@ -495,7 +487,6 @@ impl Sync {
 impl Renderer {
     pub fn new(context: VulkanContext, mut swapchain: Swapchain) -> Result<Self, RendererError> {
         let command = Command::new(&context)?;
-        swapchain.next_image_index = swapchain.get_next_image_index()?;
         let sync = Sync::new(&context)?;
 
         Ok(Self {
@@ -505,11 +496,38 @@ impl Renderer {
             sync,
         })
     }
-    pub fn present(&self) -> Result<(), RendererError> {
+    pub fn render(&mut self, bitmap: Bitmap) -> Result<(), RendererError> {
+        self.load_bitmap(bitmap)?;
+        self.present()?;
+        Ok(())
+    }
+    fn get_next_image_index(&self) -> Result<u32, RendererError> {
+        let (index, suboptimal) = unsafe {
+            self.swapchain.device.acquire_next_image(
+                self.swapchain.swapchain,
+                100,
+                self.sync.image_available_semaphore,
+                vk::Fence::null(),
+            )
+        }?;
+        Ok(index)
+    }
+    fn present(&self) -> Result<(), RendererError> {
         let index = self.swapchain.next_image_index;
+        let indices = &[index];
+        let swapchains = &[self.swapchain.swapchain];
+        let semaphores = &[self.sync.copy_finished_semaphore];
         let present_info = vk::PresentInfoKHR::default()
-            .swapchains(&[self.swapchain.swapchain])
-            .image_indices(&[index]);
+            .swapchains(swapchains)
+            .wait_semaphores(semaphores)
+            .image_indices(indices);
+        let queue = unsafe {
+            self.context
+                .device
+                .get_device_queue(self.context.queue_index, 0)
+        };
+        let result = unsafe { self.swapchain.device.queue_present(queue, &present_info) }?;
+        println!("{:?}", result);
         Ok(())
     }
     fn begin_recording_commands(&self) -> Result<(), RendererError> {
@@ -536,11 +554,20 @@ impl Renderer {
             .command_buffer(self.command.buffer)
             .device_mask(0);
         let buffer_submit_infos = &[buffer_submit_info];
-        let submit_info = vk::SubmitInfo2::default().command_buffer_infos(buffer_submit_infos);
+        let image_available_info =
+            vk::SemaphoreSubmitInfo::default().semaphore(self.sync.image_available_semaphore);
+        let image_available_infos = &[image_available_info];
+        let copy_finished_info =
+            vk::SemaphoreSubmitInfo::default().semaphore(self.sync.copy_finished_semaphore);
+        let copy_finished_infos = &[copy_finished_info];
+        let submit_info = vk::SubmitInfo2::default()
+            .command_buffer_infos(buffer_submit_infos)
+            .wait_semaphore_infos(image_available_infos)
+            .signal_semaphore_infos(copy_finished_infos);
         unsafe {
             self.context
                 .device
-                .queue_submit2(queue, &[submit_info], vk::Fence::null())
+                .queue_submit2(queue, &[submit_info], self.sync.in_flight_fence)
         }?;
         Ok(())
     }
@@ -562,7 +589,7 @@ impl Renderer {
             .new_layout(new_layout)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .image(self.swapchain.images[self.swapchain.get_next_image_index()? as usize])
+            .image(self.swapchain.images[self.swapchain.next_image_index as usize])
             .subresource_range(
                 vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -585,6 +612,13 @@ impl Renderer {
             .buffer_offset(0)
             .buffer_row_length(0)
             .buffer_image_height(0)
+            .image_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0)
+                    .base_array_layer(0)
+                    .layer_count(1),
+            )
             .image_extent(vk::Extent3D {
                 width: self.context.surface_extent.width,
                 height: self.context.surface_extent.height,
@@ -592,7 +626,6 @@ impl Renderer {
             });
         let regions = &[region];
         let images = &self.swapchain.images;
-        let index = self.swapchain.get_next_image_index()?;
         self.transition_image_layout(
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -603,7 +636,7 @@ impl Renderer {
         )?;
         let copy_info = vk::CopyBufferToImageInfo2::default()
             .src_buffer(buffer)
-            .dst_image(images[index as usize])
+            .dst_image(images[self.swapchain.next_image_index as usize])
             .dst_image_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
             .regions(regions);
         unsafe {
@@ -611,9 +644,25 @@ impl Renderer {
                 .device
                 .cmd_copy_buffer_to_image2(self.command.buffer, &copy_info)
         }
+        self.transition_image_layout(
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::ImageLayout::PRESENT_SRC_KHR,
+            vk::AccessFlags2::TRANSFER_WRITE_KHR,
+            vk::AccessFlags2::empty(),
+            vk::PipelineStageFlags2::TRANSFER_KHR,
+            vk::PipelineStageFlags2::BOTTOM_OF_PIPE_KHR,
+        )?;
         Ok(())
     }
-    pub fn load_bitmap(&self, bitmap: Bitmap) -> Result<(), RendererError> {
+    pub fn load_bitmap(&mut self, bitmap: Bitmap) -> Result<(), RendererError> {
+        unsafe {
+            self.context
+                .device
+                .wait_for_fences(&[self.sync.in_flight_fence], true, 5)?;
+            self.context
+                .device
+                .reset_fences(&[self.sync.in_flight_fence])?;
+        };
         let bitmap_size = u64::from(bitmap.width * bitmap.height * 4);
         let (buffer, memory) = self.create_staging_buffer(bitmap_size)?;
         let data = unsafe {
@@ -625,11 +674,15 @@ impl Renderer {
             std::ptr::copy_nonoverlapping(
                 bitmap.pixels.as_ptr(),
                 data as *mut [u8; 4],
-                bitmap_size as usize,
+                (bitmap.height * bitmap.width) as usize,
             );
             self.context.device.unmap_memory(memory);
         };
+        self.swapchain.next_image_index = self.get_next_image_index()?;
+        self.begin_recording_commands()?;
         self.copy_buffer_to_swapchain(buffer)?;
+        self.finish_recording_commands()?;
+        self.submit_queue()?;
         Ok(())
     }
     fn create_staging_buffer(
@@ -672,7 +725,7 @@ impl Renderer {
             .iter()
             .enumerate()
             .find(|(index, property)| {
-                property.heap_index == type_filter && property.property_flags == properties
+                (type_filter & (1 << index)) != 0 && property.property_flags.contains(properties)
             })
             .map(|(index, property)| index as u32)
             .expect("No suitable memory type found");

@@ -23,7 +23,7 @@ impl Bitmap {
     }
     // TODO should be moved elsewhere at some point
     pub fn from_pattern_table(chr: &[u8], table: u8) -> Self {
-        let mut pixels: Vec<Rgba> = vec![];
+        let mut pixels: Vec<Rgba> = vec![[0, 0, 0, 0]; 128 * 128];
         for tile_y in 0..16 {
             for tile_x in 0..16 {
                 let base = if table == 0 { 0 } else { 0x1000 };
