@@ -4,6 +4,8 @@ use std::{fs::File, path::Path, time::Duration};
 use sdl3::{event::Event, keyboard::Keycode};
 
 use crate::bitmap::Bitmap;
+use egui;
+use egui_ash_renderer;
 
 mod bitmap;
 mod renderer;
@@ -17,20 +19,6 @@ fn main() -> Result<(), sdl::ContextError> {
     let bitmap = Bitmap::from_pattern_table(cartridge.chr_slice(), 0);
     let mut context = sdl::Context::new()?;
     context.renderer.render(bitmap)?;
-    let mut event_pump = context.sdl_context.event_pump()?;
-    'running: loop {
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => break 'running,
-                _ => {}
-            }
-        }
-
-        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
-    }
+    context.main_loop()?;
     Ok(())
 }

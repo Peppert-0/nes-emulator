@@ -1,11 +1,12 @@
 use crate::renderer::{self, Renderer, RendererError, Swapchain, VulkanContext};
 use ash::Entry;
 use ash::vk::SurfaceKHR;
-use dear_imgui_rs::render;
+use egui::PointerButton;
 use sdl3::{
     Sdl, VideoSubsystem,
     event::Event,
     keyboard::Keycode,
+    mouse::MouseButton,
     surface::Surface,
     video::{Window, WindowBuildError},
 };
@@ -106,5 +107,47 @@ impl Context {
 
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         }
+    }
+    fn map_events(self) -> Result<Vec<egui::Event>, ContextError> {
+        let mut event_pump = self.sdl_context.event_pump()?;
+        let events = event_pump.poll_iter();
+        let mut egui_events: Vec<egui::Event> = vec![];
+        for event in events {
+            match event {
+                Event::MouseMotion { x, y, .. } => {
+                    egui_events.push(egui::Event::PointerMoved(egui::pos2(x as f32, y as f32)));
+                }
+                Event::MouseButtonDown {
+                    x, y, mouse_btn, ..
+                } => egui_events.push(egui::Event::PointerButton {
+                    pos: egui::pos2(x as f32, y as f32),
+                    button: Self::map_mouse_button(mouse_btn)?,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                }),
+                Event::MouseButtonUp {
+                    mouse_btn, x, y, ..
+                } => egui_events.push(egui::Event::PointerButton {
+                    pos: egui::pos2(x as f32, y as f32),
+                    button: Self::map_mouse_button(mouse_btn)?,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }),
+                _ => {}
+            }
+        }
+        Ok(egui_events)
+    }
+    fn map_mouse_button(
+        button: sdl3::mouse::MouseButton,
+    ) -> Result<egui::PointerButton, ContextError> {
+        Ok(match button {
+            MouseButton::Left => PointerButton::Primary,
+            MouseButton::Right => PointerButton::Secondary,
+            MouseButton::Middle => PointerButton::Middle,
+            MouseButton::X1 => PointerButton::Extra1,
+            MouseButton::X2 => PointerButton::Extra2,
+            MouseButton::Unknown => PointerButton::Primary,
+        })
     }
 }
