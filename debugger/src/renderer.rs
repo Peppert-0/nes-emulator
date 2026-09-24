@@ -20,7 +20,7 @@ use std::{
 use crate::bitmap::{Bitmap, Rgba};
 
 pub struct Renderer {
-    context: VulkanContext,
+    pub context: VulkanContext,
     swapchain: Swapchain,
     command: Command,
     sync: Sync,
