@@ -4,12 +4,13 @@ use ash::{
         self, AllocationCallbacks, Buffer, BufferCreateFlags, BufferCreateInfo, BufferUsageFlags,
         CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool,
         CommandPoolCreateFlags, CommandPoolCreateInfo, Device, DeviceCreateInfo, DeviceMemory,
-        DeviceQueueCreateInfo, Extent2D, FenceCreateInfo, Handle, Image, ImageAspectFlags,
-        ImageCreateInfo, ImageTiling, ImageUsageFlags, ImageView, ImageViewCreateInfo,
-        ImageViewType, MemoryAllocateInfo, MemoryMapFlags, MemoryPropertyFlags, MemoryRequirements,
-        PhysicalDevice, PhysicalDeviceFeatures, PresentModeKHR, QueueFlags, SampleCountFlags,
-        SemaphoreCreateInfo, SharingMode, SubresourceHostMemcpySizeEXT, SurfaceFormatKHR,
-        SurfaceKHR, SwapchainCreateInfoKHR, SwapchainKHR,
+        DeviceQueueCreateInfo, DeviceQueueInfo2, Extent2D, FenceCreateInfo, Handle, Image,
+        ImageAspectFlags, ImageCreateInfo, ImageTiling, ImageUsageFlags, ImageView,
+        ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo, MemoryMapFlags,
+        MemoryPropertyFlags, MemoryRequirements, PhysicalDevice, PhysicalDeviceFeatures,
+        PresentModeKHR, Queue, QueueFlags, SampleCountFlags, SemaphoreCreateInfo, SharingMode,
+        SubresourceHostMemcpySizeEXT, SurfaceFormatKHR, SurfaceKHR, SwapchainCreateInfoKHR,
+        SwapchainKHR,
     },
 };
 use std::{
@@ -22,7 +23,7 @@ use crate::bitmap::{Bitmap, Rgba};
 pub struct Renderer {
     pub context: VulkanContext,
     swapchain: Swapchain,
-    command: Command,
+    pub command: Command,
     sync: Sync,
 }
 
@@ -35,6 +36,7 @@ pub struct VulkanContext {
     pub surface_extent: Extent2D,
     pub physical_device: PhysicalDevice,
     pub queue_index: u32,
+    pub queue: Queue,
     pub device: ash::Device,
 }
 
@@ -45,9 +47,9 @@ pub struct Swapchain {
     next_image_index: u32,
 }
 
-struct Command {
-    pool: CommandPool,
-    buffer: CommandBuffer,
+pub struct Command {
+    pub pool: CommandPool,
+    pub buffer: CommandBuffer,
 }
 
 struct Sync {
@@ -112,6 +114,10 @@ impl VulkanContext {
             &surface_instance,
             &window_surface,
         )?;
+        let queue_info = DeviceQueueInfo2::default()
+            .queue_family_index(queue_index)
+            .queue_index(0);
+        let queue = unsafe { device.get_device_queue2(&queue_info) };
         let surface_extent = Extent2D::default();
 
         Ok(Self {
@@ -123,6 +129,7 @@ impl VulkanContext {
             surface_extent,
             physical_device,
             queue_index,
+            queue,
             device,
         })
     }

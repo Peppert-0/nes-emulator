@@ -1,7 +1,7 @@
 use crate::renderer::{self, Renderer, RendererError, Swapchain, VulkanContext};
 use ash::Entry;
 use ash::vk::SurfaceKHR;
-use egui::{PointerButton, Pos2};
+use egui::{FullOutput, PointerButton, Pos2};
 use egui_ash_renderer::{DynamicRendering, allocator::DefaultAllocator};
 use sdl3::{
     Sdl, VideoSubsystem,
@@ -23,7 +23,7 @@ pub struct Context {
     video_subsystem: VideoSubsystem,
     pub window: Window,
     pub renderer: Renderer,
-    //egui_renderer: egui_ash_renderer::Renderer<DefaultAllocator>,
+    egui_renderer: egui_ash_renderer::Renderer<DefaultAllocator>,
 }
 
 #[derive(Debug)]
@@ -92,12 +92,14 @@ impl Context {
         let swapchain_khr = vulkan_context.create_swap_chain((width, height))?;
         let swapchain = Swapchain::new(&vulkan_context, swapchain_khr)?;
         let renderer = Renderer::new(vulkan_context, swapchain)?;
+        let egui_renderer = Self::build_egui_renderer(&renderer)?;
 
         Ok(Self {
             sdl_context,
             video_subsystem,
             window,
             renderer,
+            egui_renderer,
         })
     }
     fn build_egui_renderer(
@@ -123,6 +125,27 @@ impl Context {
         )?;
 
         Ok(egui_renderer)
+    }
+    fn set_egui_textures(&mut self, output: &mut FullOutput) -> Result<(), ContextError> {
+        for (id, deltas) in output.textures_delta.set.drain() {
+            for delta in deltas {
+                self.egui_renderer.set_texture(
+                    self.renderer.context.queue,
+                    self.renderer.command.pool,
+                    id,
+                    &delta,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+    fn free_egui_textures(&mut self, output: &mut FullOutput) -> Result<(), ContextError> {
+        for id in output.textures_delta.free.drain() {
+            self.egui_renderer.free_texture(id)?;
+        }
+
+        Ok(())
     }
     pub fn main_loop(&mut self) -> Result<(), ContextError> {
         let mut event_pump = self.sdl_context.event_pump()?;
