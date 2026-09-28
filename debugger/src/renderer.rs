@@ -22,9 +22,9 @@ use crate::bitmap::{Bitmap, Rgba};
 
 pub struct Renderer {
     pub context: VulkanContext,
-    swapchain: Swapchain,
+    pub swapchain: Swapchain,
     pub command: Command,
-    sync: Sync,
+    pub sync: Sync,
 }
 
 pub struct VulkanContext {
@@ -41,10 +41,11 @@ pub struct VulkanContext {
 }
 
 pub struct Swapchain {
-    device: ash::khr::swapchain::Device,
-    swapchain: SwapchainKHR,
-    images: Vec<Image>,
-    next_image_index: u32,
+    pub device: ash::khr::swapchain::Device,
+    pub swapchain: SwapchainKHR,
+    pub images: Vec<Image>,
+    pub image_views: Vec<ImageView>,
+    pub next_image_index: u32,
 }
 
 pub struct Command {
@@ -52,10 +53,10 @@ pub struct Command {
     pub buffer: CommandBuffer,
 }
 
-struct Sync {
+pub struct Sync {
     image_available_semaphore: vk::Semaphore,
     copy_finished_semaphore: vk::Semaphore,
-    in_flight_fence: vk::Fence,
+    pub in_flight_fence: vk::Fence,
 }
 
 #[derive(Debug)]
@@ -370,7 +371,7 @@ impl VulkanContext {
             .image_color_space(surface_format.color_space)
             .image_extent(image_extent)
             .image_array_layers(1)
-            .image_usage(vk::ImageUsageFlags::TRANSFER_DST)
+            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
             .pre_transform(capabilities.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
@@ -392,17 +393,19 @@ impl Swapchain {
             ash::khr::swapchain::Device::new(&vulkan_context.instance, &vulkan_context.device);
         let images = unsafe { device.get_swapchain_images(swapchain) }?;
         let next_image_index = 0u32;
+        let image_views = Self::create_image_views(vulkan_context, &images)?;
 
         Ok(Self {
             device,
             swapchain,
             images,
+            image_views,
             next_image_index,
         })
     }
     fn create_image_views(
         vulkan_context: &VulkanContext,
-        swapchain_images: Vec<Image>,
+        swapchain_images: &Vec<Image>,
     ) -> Result<Vec<ImageView>, RendererError> {
         let format = vulkan_context.surface_format;
         let create_info = ImageViewCreateInfo::default()
@@ -417,7 +420,7 @@ impl Swapchain {
             });
         let mut image_views: Vec<ImageView> = vec![];
         for image in swapchain_images {
-            let create_info = create_info.image(image);
+            let create_info = create_info.image(*image);
             let image_view =
                 unsafe { vulkan_context.device.create_image_view(&create_info, None) }?;
             image_views.push(image_view);
@@ -508,7 +511,7 @@ impl Renderer {
         self.present()?;
         Ok(())
     }
-    fn get_next_image_index(&self) -> Result<u32, RendererError> {
+    pub fn get_next_image_index(&mut self) -> Result<(), RendererError> {
         let (index, suboptimal) = unsafe {
             self.swapchain.device.acquire_next_image(
                 self.swapchain.swapchain,
@@ -517,11 +520,12 @@ impl Renderer {
                 vk::Fence::null(),
             )
         }?;
-        Ok(index)
+        self.swapchain.next_image_index = index;
+
+        Ok(())
     }
-    fn present(&self) -> Result<(), RendererError> {
-        let index = self.swapchain.next_image_index;
-        let indices = &[index];
+    pub fn present(&mut self) -> Result<(), RendererError> {
+        let indices = &[self.swapchain.next_image_index];
         let swapchains = &[self.swapchain.swapchain];
         let semaphores = &[self.sync.copy_finished_semaphore];
         let present_info = vk::PresentInfoKHR::default()
@@ -534,10 +538,9 @@ impl Renderer {
                 .get_device_queue(self.context.queue_index, 0)
         };
         let result = unsafe { self.swapchain.device.queue_present(queue, &present_info) }?;
-        println!("{:?}", result);
         Ok(())
     }
-    fn begin_recording_commands(&self) -> Result<(), RendererError> {
+    pub fn begin_recording_commands(&self) -> Result<(), RendererError> {
         let begin_info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
         unsafe {
@@ -547,11 +550,11 @@ impl Renderer {
         }?;
         Ok(())
     }
-    fn finish_recording_commands(&self) -> Result<(), RendererError> {
+    pub fn finish_recording_commands(&self) -> Result<(), RendererError> {
         unsafe { self.context.device.end_command_buffer(self.command.buffer) }?;
         Ok(())
     }
-    fn submit_queue(&self) -> Result<(), RendererError> {
+    pub fn submit_queue(&self) -> Result<(), RendererError> {
         let queue = unsafe {
             self.context
                 .device
@@ -578,7 +581,7 @@ impl Renderer {
         }?;
         Ok(())
     }
-    fn transition_image_layout(
+    pub fn transition_image_layout(
         &self,
         old_layout: vk::ImageLayout,
         new_layout: vk::ImageLayout,
@@ -685,7 +688,7 @@ impl Renderer {
             );
             self.context.device.unmap_memory(memory);
         };
-        self.swapchain.next_image_index = self.get_next_image_index()?;
+        self.get_next_image_index()?;
         self.begin_recording_commands()?;
         self.copy_buffer_to_swapchain(buffer)?;
         self.finish_recording_commands()?;

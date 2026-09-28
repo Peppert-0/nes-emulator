@@ -1,6 +1,12 @@
-use crate::renderer::{self, Renderer, RendererError, Swapchain, VulkanContext};
-use ash::Entry;
+use crate::{
+    gui,
+    renderer::{self, Renderer, RendererError, Swapchain, VulkanContext},
+};
 use ash::vk::SurfaceKHR;
+use ash::{
+    Entry,
+    vk::{AccessFlags2, ImageLayout, PipelineStageFlags2},
+};
 use egui::{FullOutput, PointerButton, Pos2};
 use egui_ash_renderer::{DynamicRendering, allocator::DefaultAllocator};
 use sdl3::{
@@ -16,6 +22,7 @@ use std::{
     ffi::{CString, NulError},
     io::Error,
     time::Duration,
+    u64,
 };
 
 pub struct Context {
@@ -32,9 +39,11 @@ pub enum ContextError {
     WindowBuild(WindowBuildError),
     FfiNul(NulError),
     Renderer(RendererError),
+    Vulkan(ash::vk::Result),
     EguiRenderer(egui_ash_renderer::RendererError),
     Io(std::io::Error),
     VulkanLoad(ash::LoadingError),
+    Gui(gui::GuiError),
 }
 
 impl From<sdl3::Error> for ContextError {
@@ -57,6 +66,11 @@ impl From<RendererError> for ContextError {
         Self::Renderer(err)
     }
 }
+impl From<ash::vk::Result> for ContextError {
+    fn from(err: ash::vk::Result) -> Self {
+        Self::Vulkan(err)
+    }
+}
 impl From<egui_ash_renderer::RendererError> for ContextError {
     fn from(err: egui_ash_renderer::RendererError) -> Self {
         Self::EguiRenderer(err)
@@ -70,6 +84,11 @@ impl From<std::io::Error> for ContextError {
 impl From<ash::LoadingError> for ContextError {
     fn from(err: ash::LoadingError) -> Self {
         Self::VulkanLoad(err)
+    }
+}
+impl From<gui::GuiError> for ContextError {
+    fn from(err: gui::GuiError) -> Self {
+        Self::Gui(err)
     }
 }
 
@@ -114,7 +133,7 @@ impl Context {
             in_flight_frames: 1,
             enable_depth_test: false,
             enable_depth_write: false,
-            srgb_framebuffer: false,
+            srgb_framebuffer: true,
         };
         let egui_renderer = egui_ash_renderer::Renderer::with_default_allocator(
             &renderer.context.instance,
@@ -126,8 +145,18 @@ impl Context {
 
         Ok(egui_renderer)
     }
-    fn set_egui_textures(&mut self, output: &mut FullOutput) -> Result<(), ContextError> {
-        for (id, deltas) in output.textures_delta.set.drain() {
+    pub fn render_gui(&mut self) -> Result<(), ContextError> {
+        let device = self.renderer.context.device.clone();
+        let command_buffer = self.renderer.command.buffer;
+        unsafe {
+            device.wait_for_fences(&[self.renderer.sync.in_flight_fence], true, u64::MAX)?;
+            device.reset_fences(&[self.renderer.sync.in_flight_fence])?
+        };
+        let events = self.map_events()?;
+        let raw_input = self.build_raw_input(events)?;
+        let gui = gui::Gui::new(raw_input)?;
+        let mut full_output = gui.full_output;
+        for (id, deltas) in full_output.textures_delta.set.drain() {
             for delta in deltas {
                 self.egui_renderer.set_texture(
                     self.renderer.context.queue,
@@ -137,34 +166,78 @@ impl Context {
                 )?;
             }
         }
-
-        Ok(())
-    }
-    fn free_egui_textures(&mut self, output: &mut FullOutput) -> Result<(), ContextError> {
-        for id in output.textures_delta.free.drain() {
+        let clipped_primitives = gui
+            .egui_context
+            .tessellate(full_output.shapes, full_output.pixels_per_point);
+        unsafe {
+            device.reset_command_buffer(command_buffer, ash::vk::CommandBufferResetFlags::empty())
+        }?;
+        self.renderer.get_next_image_index()?;
+        self.renderer.begin_recording_commands()?;
+        self.renderer.transition_image_layout(
+            ImageLayout::UNDEFINED,
+            ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            AccessFlags2::empty(),
+            AccessFlags2::COLOR_ATTACHMENT_WRITE,
+            PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+            PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+        )?;
+        let attachment_info = ash::vk::RenderingAttachmentInfo::default()
+            .image_view(
+                self.renderer.swapchain.image_views
+                    [self.renderer.swapchain.next_image_index as usize],
+            )
+            .image_layout(ash::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(ash::vk::AttachmentLoadOp::CLEAR)
+            .store_op(ash::vk::AttachmentStoreOp::STORE)
+            .clear_value(ash::vk::ClearValue {
+                color: ash::vk::ClearColorValue {
+                    float32: [1.0, 0.0, 1.0, 1.0],
+                },
+            });
+        let attachment_infos = &[attachment_info];
+        let rendering_info = ash::vk::RenderingInfo::default()
+            .render_area(ash::vk::Rect2D {
+                offset: ash::vk::Offset2D { x: 0, y: 0 },
+                extent: self.renderer.context.surface_extent,
+            })
+            .layer_count(1)
+            .color_attachments(attachment_infos);
+        unsafe { device.cmd_begin_rendering(command_buffer, &rendering_info) };
+        self.egui_renderer.cmd_draw(
+            command_buffer,
+            self.renderer.context.surface_extent,
+            full_output.pixels_per_point,
+            &clipped_primitives,
+        )?;
+        unsafe {
+            device.cmd_end_rendering(command_buffer);
+        }
+        self.renderer.transition_image_layout(
+            ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            ImageLayout::PRESENT_SRC_KHR,
+            AccessFlags2::COLOR_ATTACHMENT_WRITE,
+            AccessFlags2::empty(),
+            PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+            PipelineStageFlags2::BOTTOM_OF_PIPE_KHR,
+        )?;
+        self.renderer.finish_recording_commands()?;
+        self.renderer.submit_queue()?;
+        for id in full_output.textures_delta.free.drain() {
             self.egui_renderer.free_texture(id)?;
         }
+        self.renderer.present()?;
 
         Ok(())
     }
     pub fn main_loop(&mut self) -> Result<(), ContextError> {
-        let mut event_pump = self.sdl_context.event_pump()?;
         'running: loop {
-            for event in event_pump.poll_iter() {
-                match event {
-                    Event::Quit { .. }
-                    | Event::KeyDown {
-                        keycode: Some(Keycode::Escape),
-                        ..
-                    } => break 'running Ok(()),
-                    _ => {}
-                }
-            }
+            self.render_gui()?;
 
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         }
     }
-    fn map_events(self) -> Result<Vec<egui::Event>, ContextError> {
+    fn map_events(&self) -> Result<Vec<egui::Event>, ContextError> {
         let mut event_pump = self.sdl_context.event_pump()?;
         let events = event_pump.poll_iter();
         let mut egui_events: Vec<egui::Event> = vec![];
@@ -177,7 +250,7 @@ impl Context {
                     x, y, mouse_btn, ..
                 } => egui_events.push(egui::Event::PointerButton {
                     pos: egui::pos2(x as f32, y as f32),
-                    button: Self::map_mouse_button(mouse_btn)?,
+                    button: Self::map_mouse_button(mouse_btn)?.unwrap(),
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
                 }),
@@ -185,7 +258,7 @@ impl Context {
                     mouse_btn, x, y, ..
                 } => egui_events.push(egui::Event::PointerButton {
                     pos: egui::pos2(x as f32, y as f32),
-                    button: Self::map_mouse_button(mouse_btn)?,
+                    button: Self::map_mouse_button(mouse_btn)?.unwrap(),
                     pressed: false,
                     modifiers: egui::Modifiers::NONE,
                 }),
@@ -196,17 +269,17 @@ impl Context {
     }
     fn map_mouse_button(
         button: sdl3::mouse::MouseButton,
-    ) -> Result<egui::PointerButton, ContextError> {
+    ) -> Result<Option<egui::PointerButton>, ContextError> {
         Ok(match button {
-            MouseButton::Left => PointerButton::Primary,
-            MouseButton::Right => PointerButton::Secondary,
-            MouseButton::Middle => PointerButton::Middle,
-            MouseButton::X1 => PointerButton::Extra1,
-            MouseButton::X2 => PointerButton::Extra2,
-            MouseButton::Unknown => PointerButton::Primary,
+            MouseButton::Left => Some(PointerButton::Primary),
+            MouseButton::Right => Some(PointerButton::Secondary),
+            MouseButton::Middle => Some(PointerButton::Middle),
+            MouseButton::X1 => Some(PointerButton::Extra1),
+            MouseButton::X2 => Some(PointerButton::Extra2),
+            MouseButton::Unknown => None,
         })
     }
-    fn build_raw_input(self, events: Vec<egui::Event>) -> Result<egui::RawInput, ContextError> {
+    fn build_raw_input(&self, events: Vec<egui::Event>) -> Result<egui::RawInput, ContextError> {
         let (width, height) = self.window.size();
         let size = egui::Vec2 {
             x: width as f32,

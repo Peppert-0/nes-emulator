@@ -19,7 +19,6 @@ fn main() -> Result<(), sdl::ContextError> {
     let cartridge = Cartridge::load_from_file(&mut file);
     let bitmap = Bitmap::from_pattern_table(cartridge.chr_slice(), 0);
     let mut context = sdl::Context::new()?;
-    context.renderer.render(bitmap)?;
     context.main_loop()?;
     Ok(())
 }
