@@ -1,13 +1,11 @@
-use crate::{
-    gui,
-    renderer::{self, Renderer, RendererError, Swapchain, VulkanContext},
-};
+use crate::renderer::{self, Renderer, RendererError, Swapchain, VulkanContext};
 use ash::vk::SurfaceKHR;
 use ash::{
     Entry,
     vk::{AccessFlags2, ImageLayout, PipelineStageFlags2},
 };
-use egui::{FullOutput, PointerButton, Pos2};
+use core::cartridge::Cartridge;
+use egui::{FullOutput, PointerButton, Pos2, RawInput};
 use egui_ash_renderer::{DynamicRendering, allocator::DefaultAllocator};
 use sdl3::{
     EventPump, Sdl, VideoSubsystem,
@@ -18,6 +16,9 @@ use sdl3::{
     sys::metadata::render,
     video::{Window, WindowBuildError},
 };
+use std::fmt::format;
+use std::fs::{self, File};
+use std::path::Path;
 use std::{
     ffi::{CString, NulError},
     io::Error,
@@ -27,6 +28,7 @@ use std::{
 
 pub struct Context {
     pub sdl_context: Sdl,
+    rom: Option<Cartridge>,
     egui_context: egui::Context,
     event_pump: EventPump,
     video_subsystem: VideoSubsystem,
@@ -45,7 +47,6 @@ pub enum ContextError {
     EguiRenderer(egui_ash_renderer::RendererError),
     Io(std::io::Error),
     VulkanLoad(ash::LoadingError),
-    Gui(gui::GuiError),
 }
 
 impl From<sdl3::Error> for ContextError {
@@ -88,14 +89,9 @@ impl From<ash::LoadingError> for ContextError {
         Self::VulkanLoad(err)
     }
 }
-impl From<gui::GuiError> for ContextError {
-    fn from(err: gui::GuiError) -> Self {
-        Self::Gui(err)
-    }
-}
 
 impl Context {
-    pub fn new() -> Result<Self, ContextError> {
+    pub fn new(rom: Option<Cartridge>) -> Result<Self, ContextError> {
         let sdl_context = sdl3::init()?;
         let egui_context = egui::Context::default();
         let event_pump = sdl_context.event_pump()?;
@@ -119,6 +115,7 @@ impl Context {
 
         Ok(Self {
             sdl_context,
+            rom,
             egui_context,
             event_pump,
             video_subsystem,
@@ -151,6 +148,27 @@ impl Context {
 
         Ok(egui_renderer)
     }
+    fn build_gui(&self, input: RawInput) -> Result<FullOutput, ContextError> {
+        let full_output = self.egui_context.run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.label("Hello world!");
+
+                if let Some(rom) = &self.rom {
+                    ui.label(format!(
+                        "Vertical mirroring: {:?}",
+                        rom.header.vertical_mirroring
+                    ));
+                };
+
+                let response = ui.button("Click me");
+                if response.clicked() {
+                    println!("Click");
+                }
+            });
+        });
+
+        Ok(full_output)
+    }
     pub fn render_gui(&mut self, events: Vec<egui::Event>) -> Result<(), ContextError> {
         let device = self.renderer.context.device.clone();
         let command_buffer = self.renderer.command.buffer;
@@ -159,7 +177,7 @@ impl Context {
             device.reset_fences(&[self.renderer.sync.in_flight_fence])?
         };
         let raw_input = self.build_raw_input(events)?;
-        let mut full_output = gui::Gui::draw_gui(&self.egui_context, raw_input)?;
+        let mut full_output = self.build_gui(raw_input)?;
         for (id, deltas) in full_output.textures_delta.set.drain() {
             for delta in deltas {
                 self.egui_renderer.set_texture(
@@ -240,6 +258,25 @@ impl Context {
             for event in self.event_pump.poll_iter() {
                 match event {
                     Event::Quit { .. } => break 'running Ok(()),
+                    Event::DropFile { filename, .. } => {
+                        let path = Path::new(&filename);
+                        let cartridge = match File::open(path) {
+                            Ok(mut file) => {
+                                eprintln!(
+                                    "File opened successfully: {:?}",
+                                    path.file_name().unwrap()
+                                );
+                                Some(Cartridge::load_from_file(&mut file))
+                            }
+                            Err(e) => {
+                                eprintln!("File not found: {e}");
+                                None
+                            }
+                        };
+                        if let Some(rom) = cartridge {
+                            self.rom = Some(rom);
+                        }
+                    }
                     _ => {
                         if let Some(egui_event) = Self::map_event(event)? {
                             egui_events.push(egui_event);

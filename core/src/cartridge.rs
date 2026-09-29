@@ -1,6 +1,7 @@
 use std::{fs::File, io::Read};
 
 pub struct Cartridge {
+    pub header: InesHeader,
     pub prg_rom: Vec<u8>,
     pub chr: ChrMemory,
     pub mapper: Box<dyn Mapper>,
@@ -70,11 +71,12 @@ impl Mapper for Nrom {
     }
 }
 
+#[derive(Clone)]
 pub struct InesHeader {
     prg_rom_mult: u8,
     chr_rom_mult: u8,
     mapper: u8,
-    vertical_mirroring: bool,
+    pub vertical_mirroring: bool,
     trainer: bool,
 }
 
@@ -94,13 +96,16 @@ impl Cartridge {
         let chr_rom: Vec<u8> = bytes[prg_end as usize..chr_end as usize].to_vec();
 
         let mapper = match header.mapper {
-            0 => Box::new(Nrom { header }),
+            0 => Box::new(Nrom {
+                header: header.clone(),
+            }),
             _ => {
                 panic!("Unsupported or invalid mapper");
             }
         };
 
         Self {
+            header,
             prg_rom,
             chr: ChrMemory::Rom(chr_rom),
             mapper: mapper,
