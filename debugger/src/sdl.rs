@@ -10,7 +10,7 @@ use ash::{
 use egui::{FullOutput, PointerButton, Pos2};
 use egui_ash_renderer::{DynamicRendering, allocator::DefaultAllocator};
 use sdl3::{
-    Sdl, VideoSubsystem,
+    EventPump, Sdl, VideoSubsystem,
     event::Event,
     keyboard::Keycode,
     mouse::MouseButton,
@@ -27,6 +27,8 @@ use std::{
 
 pub struct Context {
     pub sdl_context: Sdl,
+    egui_context: egui::Context,
+    event_pump: EventPump,
     video_subsystem: VideoSubsystem,
     pub window: Window,
     pub renderer: Renderer,
@@ -95,6 +97,8 @@ impl From<gui::GuiError> for ContextError {
 impl Context {
     pub fn new() -> Result<Self, ContextError> {
         let sdl_context = sdl3::init()?;
+        let egui_context = egui::Context::default();
+        let event_pump = sdl_context.event_pump()?;
         let video_subsystem = sdl_context.video()?;
         let window = video_subsystem
             .window("NES Debugger", 800, 600)
@@ -115,6 +119,8 @@ impl Context {
 
         Ok(Self {
             sdl_context,
+            egui_context,
+            event_pump,
             video_subsystem,
             window,
             renderer,
@@ -145,17 +151,15 @@ impl Context {
 
         Ok(egui_renderer)
     }
-    pub fn render_gui(&mut self) -> Result<(), ContextError> {
+    pub fn render_gui(&mut self, events: Vec<egui::Event>) -> Result<(), ContextError> {
         let device = self.renderer.context.device.clone();
         let command_buffer = self.renderer.command.buffer;
         unsafe {
             device.wait_for_fences(&[self.renderer.sync.in_flight_fence], true, u64::MAX)?;
             device.reset_fences(&[self.renderer.sync.in_flight_fence])?
         };
-        let events = self.map_events()?;
         let raw_input = self.build_raw_input(events)?;
-        let gui = gui::Gui::new(raw_input)?;
-        let mut full_output = gui.full_output;
+        let mut full_output = gui::Gui::draw_gui(&self.egui_context, raw_input)?;
         for (id, deltas) in full_output.textures_delta.set.drain() {
             for delta in deltas {
                 self.egui_renderer.set_texture(
@@ -166,7 +170,7 @@ impl Context {
                 )?;
             }
         }
-        let clipped_primitives = gui
+        let clipped_primitives = self
             .egui_context
             .tessellate(full_output.shapes, full_output.pixels_per_point);
         unsafe {
@@ -232,40 +236,51 @@ impl Context {
     }
     pub fn main_loop(&mut self) -> Result<(), ContextError> {
         'running: loop {
-            self.render_gui()?;
+            let mut egui_events: Vec<egui::Event> = vec![];
+            for event in self.event_pump.poll_iter() {
+                match event {
+                    Event::Quit { .. } => break 'running Ok(()),
+                    _ => {
+                        if let Some(egui_event) = Self::map_event(event)? {
+                            egui_events.push(egui_event);
+                        }
+                    }
+                }
+            }
+            self.render_gui(egui_events)?;
 
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         }
     }
-    fn map_events(&self) -> Result<Vec<egui::Event>, ContextError> {
-        let mut event_pump = self.sdl_context.event_pump()?;
-        let events = event_pump.poll_iter();
-        let mut egui_events: Vec<egui::Event> = vec![];
-        for event in events {
-            match event {
-                Event::MouseMotion { x, y, .. } => {
-                    egui_events.push(egui::Event::PointerMoved(egui::pos2(x as f32, y as f32)));
-                }
-                Event::MouseButtonDown {
-                    x, y, mouse_btn, ..
-                } => egui_events.push(egui::Event::PointerButton {
-                    pos: egui::pos2(x as f32, y as f32),
+    fn map_event(event: Event) -> Result<Option<egui::Event>, ContextError> {
+        match event {
+            Event::MouseMotion { x, y, .. } => {
+                return Ok(Some(egui::Event::PointerMoved(egui::pos2(
+                    x as f32, y as f32,
+                ))));
+            }
+            Event::MouseButtonDown {
+                x, y, mouse_btn, ..
+            } => {
+                return Ok(Some(egui::Event::PointerButton {
+                    pos: egui::pos2(x, y),
                     button: Self::map_mouse_button(mouse_btn)?.unwrap(),
                     pressed: true,
                     modifiers: egui::Modifiers::NONE,
-                }),
-                Event::MouseButtonUp {
-                    mouse_btn, x, y, ..
-                } => egui_events.push(egui::Event::PointerButton {
-                    pos: egui::pos2(x as f32, y as f32),
+                }));
+            }
+            Event::MouseButtonUp {
+                mouse_btn, x, y, ..
+            } => {
+                return Ok(Some(egui::Event::PointerButton {
+                    pos: egui::pos2(x, y),
                     button: Self::map_mouse_button(mouse_btn)?.unwrap(),
                     pressed: false,
                     modifiers: egui::Modifiers::NONE,
-                }),
-                _ => {}
+                }));
             }
+            _ => return Ok(None),
         }
-        Ok(egui_events)
     }
     fn map_mouse_button(
         button: sdl3::mouse::MouseButton,
