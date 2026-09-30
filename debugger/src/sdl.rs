@@ -252,30 +252,42 @@ impl Context {
 
         Ok(())
     }
+    pub fn load_rom(path: &Path) -> Result<Option<Cartridge>, ContextError> {
+        let cartridge = match File::open(path) {
+            Ok(mut file) => {
+                eprintln!("File opened successfully: {:?}", path.file_name().unwrap());
+                match Cartridge::load_from_file(&mut file) {
+                    Ok(rom) => Some(rom),
+                    Err(e) => {
+                        eprintln!("Could not verify file is nes rom");
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("File not found: {e}");
+                None
+            }
+        };
+        if let Some(rom) = cartridge {
+            return Ok(Some(rom));
+        };
+
+        Ok(None)
+    }
     pub fn main_loop(&mut self) -> Result<(), ContextError> {
         'running: loop {
+            let events: Vec<Event> = self.event_pump.poll_iter().collect();
             let mut egui_events: Vec<egui::Event> = vec![];
-            for event in self.event_pump.poll_iter() {
+            for event in events {
                 match event {
                     Event::Quit { .. } => break 'running Ok(()),
                     Event::DropFile { filename, .. } => {
                         let path = Path::new(&filename);
-                        let cartridge = match File::open(path) {
-                            Ok(mut file) => {
-                                eprintln!(
-                                    "File opened successfully: {:?}",
-                                    path.file_name().unwrap()
-                                );
-                                Some(Cartridge::load_from_file(&mut file))
-                            }
-                            Err(e) => {
-                                eprintln!("File not found: {e}");
-                                None
-                            }
-                        };
-                        if let Some(rom) = cartridge {
+                        let rom = Self::load_rom(path)?;
+                        if let Some(rom) = rom {
                             self.rom = Some(rom);
-                        }
+                        };
                     }
                     _ => {
                         if let Some(egui_event) = Self::map_event(event)? {

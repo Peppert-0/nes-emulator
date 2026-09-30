@@ -15,17 +15,7 @@ fn main() -> Result<(), sdl::ContextError> {
     let args: Vec<String> = std::env::args().collect();
     let mut context = if args.len() > 1 {
         let path = Path::new(&args[1]);
-        let cartridge = match File::open(path) {
-            Ok(mut file) => {
-                eprintln!("File opened successfully: {:?}", path.file_name().unwrap());
-                Some(Cartridge::load_from_file(&mut file))
-            }
-            Err(e) => {
-                eprintln!("File not found: {e}");
-                None
-            }
-        };
-
+        let cartridge = sdl::Context::load_rom(path)?;
         sdl::Context::new(cartridge)?
     } else {
         sdl::Context::new(None)?

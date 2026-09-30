@@ -21,6 +21,11 @@ pub struct Nrom {
     header: InesHeader,
 }
 
+#[derive(Debug)]
+pub enum NesParseError {
+    InvalidMagic,
+}
+
 impl Mapper for Nrom {
     fn cpu_read(&self, prg_rom: &Vec<u8>, address: u16) -> u8 {
         match address {
@@ -80,11 +85,13 @@ pub struct InesHeader {
     trainer: bool,
 }
 
+const MAGIC: &[u8] = b"NES\x1A";
+
 impl Cartridge {
-    pub fn load_from_file(rom: &mut File) -> Self {
+    pub fn load_from_file(rom: &mut File) -> Result<Self, NesParseError> {
         let mut bytes: Vec<u8> = Vec::new();
         rom.read_to_end(&mut bytes);
-        let header = InesHeader::parse(&mut bytes);
+        let header = InesHeader::parse(&mut bytes)?;
 
         let mut prg_start = 0x0010u16;
         if header.trainer {
@@ -104,12 +111,12 @@ impl Cartridge {
             }
         };
 
-        Self {
+        Ok(Self {
             header,
             prg_rom,
             chr: ChrMemory::Rom(chr_rom),
             mapper: mapper,
-        }
+        })
     }
     pub fn cpu_read(&self, address: u16) -> u8 {
         self.mapper.cpu_read(&self.prg_rom, address)
@@ -126,13 +133,17 @@ impl Cartridge {
 }
 
 impl InesHeader {
-    pub fn parse(bytes: &[u8]) -> Self {
-        Self {
+    pub fn parse(bytes: &[u8]) -> Result<Self, NesParseError> {
+        if !bytes.starts_with(MAGIC) {
+            return Err(NesParseError::InvalidMagic);
+        };
+
+        Ok(Self {
             prg_rom_mult: bytes[4],
             chr_rom_mult: bytes[5],
             mapper: (bytes[6] >> 4) | (bytes[7] & 0xF0),
             vertical_mirroring: (bytes[6] & 1) != 0,
             trainer: (bytes[6] & (1 << 2)) != 0,
-        }
+        })
     }
 }

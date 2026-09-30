@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::Shared;
 use crate::bus::{CpuBus, PpuBus};
-use crate::cartridge::Cartridge;
+use crate::cartridge::{Cartridge, NesParseError};
 use crate::cpu::Cpu;
 use crate::ppu::{Ppu, PpuRegisters};
 
@@ -17,20 +17,20 @@ pub struct Console {
 }
 
 impl Console {
-    pub fn new(rom: &mut File) -> Self {
-        let cartridge = Rc::new(RefCell::new(Cartridge::load_from_file(rom)));
+    pub fn new(rom: &mut File) -> Result<Self, NesParseError> {
+        let cartridge = Rc::new(RefCell::new(Cartridge::load_from_file(rom)?));
         let ppu_registers = Rc::new(RefCell::new(PpuRegisters::new()));
         let cpu = Cpu::new();
         let cpu_bus = CpuBus::new(cartridge.clone(), ppu_registers.clone());
         let ppu_bus = PpuBus::new(cartridge.clone());
         let ppu = Ppu::new(ppu_registers.clone(), ppu_bus);
 
-        Self {
+        Ok(Self {
             cpu,
             cpu_bus,
             cartridge,
             ppu,
             ppu_registers,
-        }
+        })
     }
 }
