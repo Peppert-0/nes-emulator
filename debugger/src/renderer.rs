@@ -1,16 +1,21 @@
 use ash::{
     self, Entry, Instance,
     vk::{
-        self, AllocationCallbacks, Buffer, BufferCreateFlags, BufferCreateInfo, BufferUsageFlags,
-        CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel, CommandPool,
-        CommandPoolCreateFlags, CommandPoolCreateInfo, Device, DeviceCreateInfo, DeviceMemory,
-        DeviceQueueCreateInfo, DeviceQueueInfo2, Extent2D, FenceCreateInfo, Handle, Image,
-        ImageAspectFlags, ImageCreateInfo, ImageTiling, ImageUsageFlags, ImageView,
-        ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo, MemoryMapFlags,
-        MemoryPropertyFlags, MemoryRequirements, PhysicalDevice, PhysicalDeviceFeatures,
-        PresentModeKHR, Queue, QueueFlags, SampleCountFlags, SemaphoreCreateInfo, SharingMode,
-        SubresourceHostMemcpySizeEXT, SurfaceFormatKHR, SurfaceKHR, SwapchainCreateInfoKHR,
-        SwapchainKHR,
+        self, AccessFlags2, AllocationCallbacks, Buffer, BufferCreateFlags, BufferCreateInfo,
+        BufferUsageFlags, CommandBuffer, CommandBufferAllocateInfo, CommandBufferLevel,
+        CommandPool, CommandPoolCreateFlags, CommandPoolCreateInfo, DescriptorImageInfo,
+        DescriptorPool, DescriptorPoolCreateFlags, DescriptorPoolCreateInfo, DescriptorPoolSize,
+        DescriptorSet, DescriptorSetAllocateInfo, DescriptorSetLayout, DescriptorSetLayoutBinding,
+        DescriptorSetLayoutCreateFlags, DescriptorSetLayoutCreateInfo, DescriptorType, Device,
+        DeviceCreateInfo, DeviceMemory, DeviceQueueCreateInfo, DeviceQueueInfo2, Extent2D,
+        Extent3D, FenceCreateInfo, Filter, Format, Handle, Image, ImageAspectFlags,
+        ImageCreateInfo, ImageLayout, ImageTiling, ImageType, ImageUsageFlags, ImageView,
+        ImageViewCreateFlags, ImageViewCreateInfo, ImageViewType, MemoryAllocateInfo,
+        MemoryMapFlags, MemoryPropertyFlags, MemoryRequirements, PhysicalDevice,
+        PhysicalDeviceFeatures, PipelineStageFlags2, PresentModeKHR, Queue, QueueFlags,
+        SampleCountFlags, Sampler, SamplerAddressMode, SamplerCreateInfo, SemaphoreCreateInfo,
+        ShaderStageFlags, SharingMode, SubresourceHostMemcpySizeEXT, SurfaceFormatKHR, SurfaceKHR,
+        SwapchainCreateInfoKHR, SwapchainKHR, WriteDescriptorSet,
     },
 };
 use std::{
@@ -25,6 +30,8 @@ pub struct Renderer {
     pub swapchain: Swapchain,
     pub command: Command,
     pub sync: Sync,
+    descriptor: Descriptor,
+    extent: Extent3D,
 }
 
 pub struct VulkanContext {
@@ -57,6 +64,11 @@ pub struct Sync {
     image_available_semaphore: vk::Semaphore,
     copy_finished_semaphore: vk::Semaphore,
     pub in_flight_fence: vk::Fence,
+}
+
+struct Descriptor {
+    pool: DescriptorPool,
+    set_layout: DescriptorSetLayout,
 }
 
 #[derive(Debug)]
@@ -498,18 +510,48 @@ impl Renderer {
     pub fn new(context: VulkanContext, mut swapchain: Swapchain) -> Result<Self, RendererError> {
         let command = Command::new(&context)?;
         let sync = Sync::new(&context)?;
+        let extent = vk::Extent3D {
+            width: context.surface_extent.width,
+            height: context.surface_extent.height,
+            depth: 1,
+        };
+        let descriptor = Descriptor::new(&context)?;
 
         Ok(Self {
             context,
             swapchain,
             command,
             sync,
+            descriptor,
+            extent,
         })
     }
     pub fn render(&mut self, bitmap: Bitmap) -> Result<(), RendererError> {
         self.load_bitmap(bitmap)?;
         self.present()?;
         Ok(())
+    }
+    pub fn create_bitmap_descriptor_set(
+        &mut self,
+        bitmap: Bitmap,
+    ) -> Result<DescriptorSet, RendererError> {
+        let buffer = self.create_bitmap_buffer(bitmap)?;
+        let (image, memory) = self.create_image()?;
+        let sampler = self.create_sampler()?;
+        let descriptor_set = self.create_descriptor_sets()?[0];
+        self.copy_buffer_to_image(buffer, image, || {
+            self.transition_image_layout(
+                ImageLayout::TRANSFER_DST_OPTIMAL,
+                ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                AccessFlags2::TRANSFER_WRITE,
+                AccessFlags2::SHADER_READ,
+                PipelineStageFlags2::TRANSFER_KHR,
+                PipelineStageFlags2::FRAGMENT_SHADER,
+            )
+        })?;
+        self.update_descriptor_set(image, sampler, descriptor_set)?;
+
+        Ok(descriptor_set)
     }
     pub fn get_next_image_index(&mut self) -> Result<(), RendererError> {
         let (index, suboptimal) = unsafe {
@@ -617,7 +659,108 @@ impl Renderer {
         };
         Ok(())
     }
-    fn copy_buffer_to_swapchain(&self, buffer: vk::Buffer) -> Result<(), RendererError> {
+    fn create_image(&self) -> Result<(Image, DeviceMemory), RendererError> {
+        let image_info = ImageCreateInfo::default()
+            .image_type(ImageType::TYPE_2D)
+            .format(Format::R8G8B8A8_SRGB)
+            .extent(self.extent)
+            .mip_levels(1)
+            .array_layers(1)
+            .samples(SampleCountFlags::TYPE_1)
+            .tiling(ImageTiling::OPTIMAL)
+            .usage(ImageUsageFlags::TRANSFER_DST)
+            .sharing_mode(SharingMode::EXCLUSIVE);
+        let image = unsafe { self.context.device.create_image(&image_info, None) }?;
+        let memory_requirements =
+            unsafe { self.context.device.get_image_memory_requirements(image) };
+        let allocation_info = MemoryAllocateInfo::default()
+            .allocation_size(memory_requirements.size)
+            .memory_type_index(self.get_memory_type_index(
+                memory_requirements.memory_type_bits,
+                MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+            )?);
+        let image_memory = unsafe { self.context.device.allocate_memory(&allocation_info, None) }?;
+        unsafe {
+            self.context
+                .device
+                .bind_image_memory(image, image_memory, 0)?;
+        };
+
+        Ok((image, image_memory))
+    }
+    fn create_sampler(&self) -> Result<Sampler, RendererError> {
+        let create_info = SamplerCreateInfo::default()
+            .mag_filter(Filter::NEAREST)
+            .min_filter(Filter::NEAREST)
+            .address_mode_u(SamplerAddressMode::CLAMP_TO_EDGE)
+            .address_mode_v(SamplerAddressMode::CLAMP_TO_EDGE)
+            .address_mode_w(SamplerAddressMode::CLAMP_TO_EDGE);
+
+        Ok(unsafe { self.context.device.create_sampler(&create_info, None) }?)
+    }
+    fn create_image_view(&self, image: Image) -> Result<ImageView, RendererError> {
+        let format = self.context.surface_format;
+        let create_info = ImageViewCreateInfo::default()
+            .image(image)
+            .view_type(ImageViewType::TYPE_2D)
+            .format(format.format)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            });
+
+        Ok(unsafe { self.context.device.create_image_view(&create_info, None) }?)
+    }
+    fn create_descriptor_sets(&self) -> Result<Vec<DescriptorSet>, RendererError> {
+        let layouts = &[self.descriptor.set_layout];
+        let allocation_info = DescriptorSetAllocateInfo::default()
+            .descriptor_pool(self.descriptor.pool)
+            .set_layouts(layouts);
+        let descriptor_sets = unsafe {
+            self.context
+                .device
+                .allocate_descriptor_sets(&allocation_info)
+        }?;
+
+        Ok(descriptor_sets)
+    }
+    fn update_descriptor_set(
+        &self,
+        image: Image,
+        sampler: Sampler,
+        descriptor_set: DescriptorSet,
+    ) -> Result<(), RendererError> {
+        let image_view = self.create_image_view(image)?;
+        let descriptor_image_info = DescriptorImageInfo::default()
+            .sampler(sampler)
+            .image_view(image_view)
+            .image_layout(ImageLayout::SHADER_READ_ONLY_OPTIMAL);
+        let descriptor_image_infos = &[descriptor_image_info];
+        let write_descriptor_set = WriteDescriptorSet::default()
+            .dst_set(descriptor_set)
+            .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(descriptor_image_infos);
+        let write_descriptor_sets = &[write_descriptor_set];
+        unsafe {
+            self.context
+                .device
+                .update_descriptor_sets(write_descriptor_sets, &[])
+        };
+
+        Ok(())
+    }
+    fn copy_buffer_to_image<T>(
+        &self,
+        buffer: vk::Buffer,
+        image: Image,
+        final_transition: T,
+    ) -> Result<(), RendererError>
+    where
+        T: Fn() -> Result<(), RendererError>,
+    {
         let region = vk::BufferImageCopy2::default()
             .buffer_offset(0)
             .buffer_row_length(0)
@@ -629,13 +772,8 @@ impl Renderer {
                     .base_array_layer(0)
                     .layer_count(1),
             )
-            .image_extent(vk::Extent3D {
-                width: self.context.surface_extent.width,
-                height: self.context.surface_extent.height,
-                depth: 1,
-            });
+            .image_extent(self.extent);
         let regions = &[region];
-        let images = &self.swapchain.images;
         self.transition_image_layout(
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -646,7 +784,7 @@ impl Renderer {
         )?;
         let copy_info = vk::CopyBufferToImageInfo2::default()
             .src_buffer(buffer)
-            .dst_image(images[self.swapchain.next_image_index as usize])
+            .dst_image(image)
             .dst_image_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
             .regions(regions);
         unsafe {
@@ -654,25 +792,10 @@ impl Renderer {
                 .device
                 .cmd_copy_buffer_to_image2(self.command.buffer, &copy_info)
         }
-        self.transition_image_layout(
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            vk::ImageLayout::PRESENT_SRC_KHR,
-            vk::AccessFlags2::TRANSFER_WRITE_KHR,
-            vk::AccessFlags2::empty(),
-            vk::PipelineStageFlags2::TRANSFER_KHR,
-            vk::PipelineStageFlags2::BOTTOM_OF_PIPE_KHR,
-        )?;
+        final_transition()?;
         Ok(())
     }
-    pub fn load_bitmap(&mut self, bitmap: Bitmap) -> Result<(), RendererError> {
-        unsafe {
-            self.context
-                .device
-                .wait_for_fences(&[self.sync.in_flight_fence], true, 5)?;
-            self.context
-                .device
-                .reset_fences(&[self.sync.in_flight_fence])?;
-        };
+    fn create_bitmap_buffer(&mut self, bitmap: Bitmap) -> Result<Buffer, RendererError> {
         let bitmap_size = u64::from(bitmap.width * bitmap.height * 4);
         let (buffer, memory) = self.create_staging_buffer(bitmap_size)?;
         let data = unsafe {
@@ -688,9 +811,24 @@ impl Renderer {
             );
             self.context.device.unmap_memory(memory);
         };
+
+        Ok(buffer)
+    }
+    pub fn load_bitmap(&mut self, bitmap: Bitmap) -> Result<(), RendererError> {
+        let buffer = self.create_bitmap_buffer(bitmap)?;
         self.get_next_image_index()?;
         self.begin_recording_commands()?;
-        self.copy_buffer_to_swapchain(buffer)?;
+        let image = self.swapchain.images[self.swapchain.next_image_index as usize];
+        self.copy_buffer_to_image(buffer, image, || {
+            self.transition_image_layout(
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                vk::ImageLayout::PRESENT_SRC_KHR,
+                vk::AccessFlags2::TRANSFER_WRITE_KHR,
+                vk::AccessFlags2::empty(),
+                vk::PipelineStageFlags2::TRANSFER_KHR,
+                vk::PipelineStageFlags2::BOTTOM_OF_PIPE_KHR,
+            )
+        })?;
         self.finish_recording_commands()?;
         self.submit_queue()?;
         Ok(())
@@ -741,5 +879,39 @@ impl Renderer {
             .expect("No suitable memory type found");
 
         Ok(property_index)
+    }
+}
+
+impl Descriptor {
+    pub fn new(context: &VulkanContext) -> Result<Self, RendererError> {
+        let pool = Self::create_descriptor_pool(context)?;
+        let set_layout = Self::create_layout(context)?;
+        Ok(Self { pool, set_layout })
+    }
+    fn create_descriptor_pool(context: &VulkanContext) -> Result<DescriptorPool, RendererError> {
+        let pool_size = DescriptorPoolSize::default()
+            .ty(DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(500);
+        let pool_sizes = &[pool_size];
+        let create_info = DescriptorPoolCreateInfo::default()
+            .flags(DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
+            .max_sets(500)
+            .pool_sizes(pool_sizes);
+
+        Ok(unsafe { context.device.create_descriptor_pool(&create_info, None) }?)
+    }
+    fn create_layout(context: &VulkanContext) -> Result<DescriptorSetLayout, RendererError> {
+        let layout_binding = DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .stage_flags(ShaderStageFlags::ALL);
+        let layout_bindings = &[layout_binding];
+        let layout_create_info = DescriptorSetLayoutCreateInfo::default().bindings(layout_bindings);
+        let descriptor_set_layout = unsafe {
+            context
+                .device
+                .create_descriptor_set_layout(&layout_create_info, None)
+        }?;
+        Ok(descriptor_set_layout)
     }
 }

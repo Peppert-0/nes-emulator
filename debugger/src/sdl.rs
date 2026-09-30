@@ -1,3 +1,4 @@
+use crate::bitmap::Bitmap;
 use crate::renderer::{self, Renderer, RendererError, Swapchain, VulkanContext};
 use ash::vk::SurfaceKHR;
 use ash::{
@@ -5,7 +6,7 @@ use ash::{
     vk::{AccessFlags2, ImageLayout, PipelineStageFlags2},
 };
 use core::cartridge::Cartridge;
-use egui::{FullOutput, PointerButton, Pos2, RawInput};
+use egui::{FullOutput, PointerButton, Pos2, RawInput, TextureId};
 use egui_ash_renderer::{DynamicRendering, allocator::DefaultAllocator};
 use sdl3::{
     EventPump, Sdl, VideoSubsystem,
@@ -35,6 +36,7 @@ pub struct Context {
     pub window: Window,
     pub renderer: Renderer,
     egui_renderer: egui_ash_renderer::Renderer<DefaultAllocator>,
+    textures: Vec<TextureId>,
 }
 
 #[derive(Debug)]
@@ -112,6 +114,7 @@ impl Context {
         let swapchain = Swapchain::new(&vulkan_context, swapchain_khr)?;
         let renderer = Renderer::new(vulkan_context, swapchain)?;
         let egui_renderer = Self::build_egui_renderer(&renderer)?;
+        let textures: Vec<TextureId> = vec![];
 
         Ok(Self {
             sdl_context,
@@ -122,6 +125,7 @@ impl Context {
             window,
             renderer,
             egui_renderer,
+            textures,
         })
     }
     fn build_egui_renderer(
@@ -177,6 +181,10 @@ impl Context {
             device.reset_fences(&[self.renderer.sync.in_flight_fence])?
         };
         let raw_input = self.build_raw_input(events)?;
+        unsafe {
+            device.reset_command_buffer(command_buffer, ash::vk::CommandBufferResetFlags::empty())
+        }?;
+        self.renderer.begin_recording_commands()?;
         let mut full_output = self.build_gui(raw_input)?;
         for (id, deltas) in full_output.textures_delta.set.drain() {
             for delta in deltas {
@@ -191,11 +199,7 @@ impl Context {
         let clipped_primitives = self
             .egui_context
             .tessellate(full_output.shapes, full_output.pixels_per_point);
-        unsafe {
-            device.reset_command_buffer(command_buffer, ash::vk::CommandBufferResetFlags::empty())
-        }?;
         self.renderer.get_next_image_index()?;
-        self.renderer.begin_recording_commands()?;
         self.renderer.transition_image_layout(
             ImageLayout::UNDEFINED,
             ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
@@ -286,6 +290,12 @@ impl Context {
                         let path = Path::new(&filename);
                         let rom = Self::load_rom(path)?;
                         if let Some(rom) = rom {
+                            let chr = rom.chr_slice();
+                            let bitmap = Bitmap::from_pattern_table(chr, 0);
+                            let descriptor_set =
+                                self.renderer.create_bitmap_descriptor_set(bitmap)?;
+                            let texture_id = self.egui_renderer.add_user_texture(descriptor_set);
+                            self.textures.push(texture_id);
                             self.rom = Some(rom);
                         };
                     }
