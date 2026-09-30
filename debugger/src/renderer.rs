@@ -533,14 +533,17 @@ impl Renderer {
     }
     pub fn create_bitmap_descriptor_set(
         &mut self,
-        bitmap: Bitmap,
+        bitmap: &Bitmap,
     ) -> Result<DescriptorSet, RendererError> {
+        let width = bitmap.width;
+        let height = bitmap.height;
+        let (image, memory) = self.create_image(&bitmap)?;
         let buffer = self.create_bitmap_buffer(bitmap)?;
-        let (image, memory) = self.create_image()?;
         let sampler = self.create_sampler()?;
         let descriptor_set = self.create_descriptor_sets()?[0];
-        self.copy_buffer_to_image(buffer, image, || {
+        self.copy_buffer_to_image(buffer, image, width, height, || {
             self.transition_image_layout(
+                image,
                 ImageLayout::TRANSFER_DST_OPTIMAL,
                 ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 AccessFlags2::TRANSFER_WRITE,
@@ -625,6 +628,7 @@ impl Renderer {
     }
     pub fn transition_image_layout(
         &self,
+        image: Image,
         old_layout: vk::ImageLayout,
         new_layout: vk::ImageLayout,
         src_access_mask: vk::AccessFlags2,
@@ -641,7 +645,7 @@ impl Renderer {
             .new_layout(new_layout)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .image(self.swapchain.images[self.swapchain.next_image_index as usize])
+            .image(image)
             .subresource_range(
                 vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -659,16 +663,20 @@ impl Renderer {
         };
         Ok(())
     }
-    fn create_image(&self) -> Result<(Image, DeviceMemory), RendererError> {
+    fn create_image(&self, bitmap: &Bitmap) -> Result<(Image, DeviceMemory), RendererError> {
         let image_info = ImageCreateInfo::default()
             .image_type(ImageType::TYPE_2D)
             .format(Format::R8G8B8A8_SRGB)
-            .extent(self.extent)
+            .extent(Extent3D {
+                width: bitmap.width,
+                height: bitmap.height,
+                depth: 1,
+            })
             .mip_levels(1)
             .array_layers(1)
             .samples(SampleCountFlags::TYPE_1)
             .tiling(ImageTiling::OPTIMAL)
-            .usage(ImageUsageFlags::TRANSFER_DST)
+            .usage(ImageUsageFlags::TRANSFER_DST | ImageUsageFlags::SAMPLED)
             .sharing_mode(SharingMode::EXCLUSIVE);
         let image = unsafe { self.context.device.create_image(&image_info, None) }?;
         let memory_requirements =
@@ -677,7 +685,7 @@ impl Renderer {
             .allocation_size(memory_requirements.size)
             .memory_type_index(self.get_memory_type_index(
                 memory_requirements.memory_type_bits,
-                MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT,
+                MemoryPropertyFlags::DEVICE_LOCAL,
             )?);
         let image_memory = unsafe { self.context.device.allocate_memory(&allocation_info, None) }?;
         unsafe {
@@ -724,6 +732,8 @@ impl Renderer {
                 .device
                 .allocate_descriptor_sets(&allocation_info)
         }?;
+        println!("allocated descriptor set: {:?}", descriptor_sets[0]);
+        println!("using layout: {:?}", self.descriptor.set_layout);
 
         Ok(descriptor_sets)
     }
@@ -756,6 +766,8 @@ impl Renderer {
         &self,
         buffer: vk::Buffer,
         image: Image,
+        width: u32,
+        height: u32,
         final_transition: T,
     ) -> Result<(), RendererError>
     where
@@ -772,9 +784,14 @@ impl Renderer {
                     .base_array_layer(0)
                     .layer_count(1),
             )
-            .image_extent(self.extent);
+            .image_extent(Extent3D {
+                width,
+                height,
+                depth: 1,
+            });
         let regions = &[region];
         self.transition_image_layout(
+            image,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::AccessFlags2::empty(),
@@ -795,7 +812,7 @@ impl Renderer {
         final_transition()?;
         Ok(())
     }
-    fn create_bitmap_buffer(&mut self, bitmap: Bitmap) -> Result<Buffer, RendererError> {
+    fn create_bitmap_buffer(&mut self, bitmap: &Bitmap) -> Result<Buffer, RendererError> {
         let bitmap_size = u64::from(bitmap.width * bitmap.height * 4);
         let (buffer, memory) = self.create_staging_buffer(bitmap_size)?;
         let data = unsafe {
@@ -815,12 +832,15 @@ impl Renderer {
         Ok(buffer)
     }
     pub fn load_bitmap(&mut self, bitmap: Bitmap) -> Result<(), RendererError> {
-        let buffer = self.create_bitmap_buffer(bitmap)?;
+        let width = bitmap.width.clone();
+        let height = bitmap.height.clone();
+        let buffer = self.create_bitmap_buffer(&bitmap)?;
         self.get_next_image_index()?;
         self.begin_recording_commands()?;
         let image = self.swapchain.images[self.swapchain.next_image_index as usize];
-        self.copy_buffer_to_image(buffer, image, || {
+        self.copy_buffer_to_image(buffer, image, width, height, || {
             self.transition_image_layout(
+                image,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 vk::ImageLayout::PRESENT_SRC_KHR,
                 vk::AccessFlags2::TRANSFER_WRITE_KHR,
@@ -904,7 +924,8 @@ impl Descriptor {
         let layout_binding = DescriptorSetLayoutBinding::default()
             .binding(0)
             .descriptor_type(DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .stage_flags(ShaderStageFlags::ALL);
+            .descriptor_count(1)
+            .stage_flags(ShaderStageFlags::FRAGMENT);
         let layout_bindings = &[layout_binding];
         let layout_create_info = DescriptorSetLayoutCreateInfo::default().bindings(layout_bindings);
         let descriptor_set_layout = unsafe {

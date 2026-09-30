@@ -6,7 +6,9 @@ use ash::{
     vk::{AccessFlags2, ImageLayout, PipelineStageFlags2},
 };
 use core::cartridge::Cartridge;
-use egui::{FullOutput, PointerButton, Pos2, RawInput, TextureId};
+use egui::WidgetType::Image;
+use egui::load::SizedTexture;
+use egui::{FullOutput, PointerButton, Pos2, RawInput, TextureId, Widget};
 use egui_ash_renderer::{DynamicRendering, allocator::DefaultAllocator};
 use sdl3::{
     EventPump, Sdl, VideoSubsystem,
@@ -17,6 +19,7 @@ use sdl3::{
     sys::metadata::render,
     video::{Window, WindowBuildError},
 };
+use std::collections::VecDeque;
 use std::fmt::format;
 use std::fs::{self, File};
 use std::path::Path;
@@ -36,6 +39,7 @@ pub struct Context {
     pub window: Window,
     pub renderer: Renderer,
     egui_renderer: egui_ash_renderer::Renderer<DefaultAllocator>,
+    bitmaps: Vec<Bitmap>,
     textures: Vec<TextureId>,
 }
 
@@ -114,7 +118,8 @@ impl Context {
         let swapchain = Swapchain::new(&vulkan_context, swapchain_khr)?;
         let renderer = Renderer::new(vulkan_context, swapchain)?;
         let egui_renderer = Self::build_egui_renderer(&renderer)?;
-        let textures: Vec<TextureId> = vec![];
+        let bitmaps: Vec<Bitmap> = Vec::new();
+        let textures: Vec<TextureId> = Vec::new();
 
         Ok(Self {
             sdl_context,
@@ -125,6 +130,7 @@ impl Context {
             window,
             renderer,
             egui_renderer,
+            bitmaps,
             textures,
         })
     }
@@ -163,6 +169,13 @@ impl Context {
                         rom.header.vertical_mirroring
                     ));
                 };
+                for texture_id in &self.textures {
+                    let texture = SizedTexture {
+                        id: *texture_id,
+                        size: egui::Vec2 { x: 512.0, y: 512.0 },
+                    };
+                    egui::Image::new(texture).ui(ui);
+                }
 
                 let response = ui.button("Click me");
                 if response.clicked() {
@@ -199,8 +212,16 @@ impl Context {
         let clipped_primitives = self
             .egui_context
             .tessellate(full_output.shapes, full_output.pixels_per_point);
+        while self.bitmaps.len() > 0 {
+            let descriptor_set = self
+                .renderer
+                .create_bitmap_descriptor_set(&self.bitmaps.pop().unwrap())?;
+            let texture_id = self.egui_renderer.add_user_texture(descriptor_set);
+            self.textures.push(texture_id);
+        }
         self.renderer.get_next_image_index()?;
         self.renderer.transition_image_layout(
+            self.renderer.swapchain.images[self.renderer.swapchain.next_image_index as usize],
             ImageLayout::UNDEFINED,
             ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
             AccessFlags2::empty(),
@@ -240,6 +261,7 @@ impl Context {
             device.cmd_end_rendering(command_buffer);
         }
         self.renderer.transition_image_layout(
+            self.renderer.swapchain.images[self.renderer.swapchain.next_image_index as usize],
             ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
             ImageLayout::PRESENT_SRC_KHR,
             AccessFlags2::COLOR_ATTACHMENT_WRITE,
@@ -291,11 +313,8 @@ impl Context {
                         let rom = Self::load_rom(path)?;
                         if let Some(rom) = rom {
                             let chr = rom.chr_slice();
-                            let bitmap = Bitmap::from_pattern_table(chr, 0);
-                            let descriptor_set =
-                                self.renderer.create_bitmap_descriptor_set(bitmap)?;
-                            let texture_id = self.egui_renderer.add_user_texture(descriptor_set);
-                            self.textures.push(texture_id);
+                            self.bitmaps.push(Bitmap::from_pattern_table(chr, 0));
+                            self.bitmaps.push(Bitmap::from_pattern_table(chr, 1));
                             self.rom = Some(rom);
                         };
                     }
