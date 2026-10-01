@@ -10,6 +10,7 @@ use egui::WidgetType::Image;
 use egui::load::SizedTexture;
 use egui::{FullOutput, PointerButton, Pos2, RawInput, TextureId, Widget};
 use egui_ash_renderer::{DynamicRendering, allocator::DefaultAllocator};
+use sdl3::event::WindowEvent;
 use sdl3::{
     EventPump, Sdl, VideoSubsystem,
     event::Event,
@@ -41,6 +42,7 @@ pub struct Context {
     egui_renderer: egui_ash_renderer::Renderer<DefaultAllocator>,
     bitmaps: Vec<Bitmap>,
     textures: Vec<TextureId>,
+    scale: f32,
 }
 
 #[derive(Debug)]
@@ -114,12 +116,13 @@ impl Context {
         let vulkan_surface = unsafe { window.vulkan_create_surface(raw_instance) }?;
         let mut vulkan_context = VulkanContext::new(entry, instance, vulkan_surface)?;
         let (width, height) = window.size_in_pixels();
-        let swapchain_khr = vulkan_context.create_swap_chain((width, height))?;
+        let swapchain_khr = vulkan_context.create_swap_chain((width, height), None)?;
         let swapchain = Swapchain::new(&vulkan_context, swapchain_khr)?;
         let renderer = Renderer::new(vulkan_context, swapchain)?;
         let egui_renderer = Self::build_egui_renderer(&renderer)?;
         let bitmaps: Vec<Bitmap> = Vec::new();
         let textures: Vec<TextureId> = Vec::new();
+        let scale = 1.0;
 
         Ok(Self {
             sdl_context,
@@ -132,6 +135,7 @@ impl Context {
             egui_renderer,
             bitmaps,
             textures,
+            scale,
         })
     }
     fn build_egui_renderer(
@@ -158,29 +162,54 @@ impl Context {
 
         Ok(egui_renderer)
     }
-    fn build_gui(&self, input: RawInput) -> Result<FullOutput, ContextError> {
+    fn build_gui(&mut self, input: RawInput) -> Result<FullOutput, ContextError> {
         let full_output = self.egui_context.run_ui(input, |ui| {
+            egui::Window::new("Pattern Tables")
+                .auto_sized()
+                .show(ui, |ui| {
+                    if self.textures.is_empty() {
+                        egui::Frame::group(ui.style()).show(ui, |ui| {
+                            ui.allocate_ui_with_layout(
+                                egui::Vec2 { x: 256.0, y: 128.0 },
+                                egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                                |ui| {
+                                    ui.label(
+                                        egui::RichText::new("Drop a ROM here").size(20.0).strong(),
+                                    );
+                                    ui.label(
+                                        "Drag and drop a ROM file to display its pattern tables.",
+                                    );
+                                },
+                            );
+                        });
+                    } else {
+                        ui.add(egui::Slider::new(&mut self.scale, 0.0..=10.0).text("Scale"));
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            for texture_id in &self.textures {
+                                let texture = SizedTexture {
+                                    id: *texture_id,
+                                    size: egui::Vec2 {
+                                        x: 64.0 * self.scale,
+                                        y: 64.0 * self.scale,
+                                    },
+                                };
+                                egui::Image::new(texture).ui(ui);
+                            }
+                        });
+                    }
+                });
             egui::CentralPanel::default().show(ui, |ui| {
-                ui.label("Hello world!");
-
-                if let Some(rom) = &self.rom {
-                    ui.label(format!(
-                        "Vertical mirroring: {:?}",
-                        rom.header.vertical_mirroring
-                    ));
-                };
-                for texture_id in &self.textures {
-                    let texture = SizedTexture {
-                        id: *texture_id,
-                        size: egui::Vec2 { x: 512.0, y: 512.0 },
-                    };
-                    egui::Image::new(texture).ui(ui);
-                }
-
-                let response = ui.button("Click me");
-                if response.clicked() {
-                    println!("Click");
-                }
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    let size = ui.available_size();
+                    ui.allocate_ui_with_layout(
+                        size,
+                        egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                        |ui| {
+                            ui.label(egui::RichText::new("Drop a ROM here").size(30.0).strong());
+                        },
+                    );
+                });
             });
         });
 
@@ -312,12 +341,19 @@ impl Context {
                         let path = Path::new(&filename);
                         let rom = Self::load_rom(path)?;
                         if let Some(rom) = rom {
+                            self.textures = Vec::new();
                             let chr = rom.chr_slice();
                             self.bitmaps.push(Bitmap::from_pattern_table(chr, 0));
                             self.bitmaps.push(Bitmap::from_pattern_table(chr, 1));
                             self.rom = Some(rom);
                         };
                     }
+                    Event::Window { win_event, .. } => match win_event {
+                        WindowEvent::Resized(width, height) => {
+                            self.renderer.swapchain.is_stale = true;
+                        }
+                        _ => {}
+                    },
                     _ => {
                         if let Some(egui_event) = Self::map_event(event)? {
                             egui_events.push(egui_event);
@@ -325,9 +361,17 @@ impl Context {
                     }
                 }
             }
+            if self.renderer.swapchain.is_stale {
+                let (width, height) = self.window.size();
+                let swapchain_khr = self
+                    .renderer
+                    .context
+                    .create_swap_chain((width, height), Some(self.renderer.swapchain.swapchain))?;
+                self.renderer.recreate_swapchain(swapchain_khr)?;
+            }
             self.render_gui(egui_events)?;
 
-            ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+            ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 165));
         }
     }
     fn map_event(event: Event) -> Result<Option<egui::Event>, ContextError> {
@@ -354,6 +398,16 @@ impl Context {
                     pos: egui::pos2(x, y),
                     button: Self::map_mouse_button(mouse_btn)?.unwrap(),
                     pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                }));
+            }
+            Event::MouseWheel {
+                x, y, direction, ..
+            } => {
+                return Ok(Some(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::Vec2 { x, y },
+                    phase: egui::TouchPhase::Move,
                     modifiers: egui::Modifiers::NONE,
                 }));
             }

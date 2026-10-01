@@ -53,6 +53,7 @@ pub struct Swapchain {
     pub images: Vec<Image>,
     pub image_views: Vec<ImageView>,
     pub next_image_index: u32,
+    pub is_stale: bool,
 }
 
 pub struct Command {
@@ -366,6 +367,7 @@ impl VulkanContext {
     pub fn create_swap_chain(
         &mut self,
         (extent_width, extent_height): (u32, u32),
+        old_swapchain: Option<SwapchainKHR>,
     ) -> Result<SwapchainKHR, RendererError> {
         let capabilities = unsafe {
             self.surface_instance
@@ -389,7 +391,12 @@ impl VulkanContext {
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(presentation_mode)
             .surface(self.surface)
-            .clipped(true);
+            .clipped(true)
+            .old_swapchain(if let Some(old) = old_swapchain {
+                old
+            } else {
+                SwapchainKHR::null()
+            });
         let swapchain = unsafe { swapchain_device.create_swapchain(&swapchain_create_info, None) }?;
 
         Ok(swapchain)
@@ -406,6 +413,7 @@ impl Swapchain {
         let images = unsafe { device.get_swapchain_images(swapchain) }?;
         let next_image_index = 0u32;
         let image_views = Self::create_image_views(vulkan_context, &images)?;
+        let is_stale = false;
 
         Ok(Self {
             device,
@@ -413,6 +421,7 @@ impl Swapchain {
             images,
             image_views,
             next_image_index,
+            is_stale,
         })
     }
     fn create_image_views(
@@ -507,7 +516,7 @@ impl Sync {
 }
 
 impl Renderer {
-    pub fn new(context: VulkanContext, mut swapchain: Swapchain) -> Result<Self, RendererError> {
+    pub fn new(context: VulkanContext, swapchain: Swapchain) -> Result<Self, RendererError> {
         let command = Command::new(&context)?;
         let sync = Sync::new(&context)?;
         let extent = vk::Extent3D {
@@ -525,6 +534,11 @@ impl Renderer {
             descriptor,
             extent,
         })
+    }
+    pub fn recreate_swapchain(&mut self, swapchain: SwapchainKHR) -> Result<(), RendererError> {
+        unsafe { self.context.device.device_wait_idle() }?;
+        self.swapchain = Swapchain::new(&self.context, swapchain)?;
+        Ok(())
     }
     pub fn render(&mut self, bitmap: Bitmap) -> Result<(), RendererError> {
         self.load_bitmap(bitmap)?;
@@ -732,8 +746,6 @@ impl Renderer {
                 .device
                 .allocate_descriptor_sets(&allocation_info)
         }?;
-        println!("allocated descriptor set: {:?}", descriptor_sets[0]);
-        println!("using layout: {:?}", self.descriptor.set_layout);
 
         Ok(descriptor_sets)
     }
