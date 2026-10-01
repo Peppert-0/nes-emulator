@@ -1,4 +1,6 @@
 use crate::bitmap::Bitmap;
+use crate::gui::TextureName::PatternTable2;
+use crate::gui::{self, Gui, TextureName};
 use crate::renderer::{self, Renderer, RendererError, Swapchain, VulkanContext};
 use ash::vk::SurfaceKHR;
 use ash::{
@@ -20,8 +22,8 @@ use sdl3::{
     sys::metadata::render,
     video::{Window, WindowBuildError},
 };
-use std::collections::VecDeque;
-use std::fmt::format;
+use std::collections::{HashMap, VecDeque};
+use std::fmt::{Arguments, format};
 use std::fs::{self, File};
 use std::path::Path;
 use std::{
@@ -40,9 +42,8 @@ pub struct Context {
     pub window: Window,
     pub renderer: Renderer,
     egui_renderer: egui_ash_renderer::Renderer<DefaultAllocator>,
-    bitmaps: Vec<Bitmap>,
-    textures: Vec<TextureId>,
-    scale: f32,
+    bitmaps: Vec<(TextureName, Bitmap)>,
+    gui: Gui,
 }
 
 #[derive(Debug)]
@@ -120,9 +121,8 @@ impl Context {
         let swapchain = Swapchain::new(&vulkan_context, swapchain_khr)?;
         let renderer = Renderer::new(vulkan_context, swapchain)?;
         let egui_renderer = Self::build_egui_renderer(&renderer)?;
-        let bitmaps: Vec<Bitmap> = Vec::new();
-        let textures: Vec<TextureId> = Vec::new();
-        let scale = 1.0;
+        let bitmaps = Vec::new();
+        let gui = Gui::new();
 
         Ok(Self {
             sdl_context,
@@ -134,8 +134,7 @@ impl Context {
             renderer,
             egui_renderer,
             bitmaps,
-            textures,
-            scale,
+            gui,
         })
     }
     fn build_egui_renderer(
@@ -164,52 +163,23 @@ impl Context {
     }
     fn build_gui(&mut self, input: RawInput) -> Result<FullOutput, ContextError> {
         let full_output = self.egui_context.run_ui(input, |ui| {
-            egui::Window::new("Pattern Tables")
-                .auto_sized()
-                .show(ui, |ui| {
-                    if self.textures.is_empty() {
-                        egui::Frame::group(ui.style()).show(ui, |ui| {
-                            ui.allocate_ui_with_layout(
-                                egui::Vec2 { x: 256.0, y: 128.0 },
-                                egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                                |ui| {
-                                    ui.label(
-                                        egui::RichText::new("Drop a ROM here").size(20.0).strong(),
-                                    );
-                                    ui.label(
-                                        "Drag and drop a ROM file to display its pattern tables.",
-                                    );
-                                },
-                            );
-                        });
-                    } else {
-                        ui.add(egui::Slider::new(&mut self.scale, 0.0..=10.0).text("Scale"));
-                        ui.add_space(10.0);
-                        ui.horizontal(|ui| {
-                            for texture_id in &self.textures {
-                                let texture = SizedTexture {
-                                    id: *texture_id,
-                                    size: egui::Vec2 {
-                                        x: 64.0 * self.scale,
-                                        y: 64.0 * self.scale,
-                                    },
-                                };
-                                egui::Image::new(texture).ui(ui);
-                            }
-                        });
-                    }
-                });
+            self.gui
+                .display_component(ui, &gui::ComponentId::PatternTables);
             egui::CentralPanel::default().show(ui, |ui| {
-                egui::Frame::group(ui.style()).show(ui, |ui| {
-                    let size = ui.available_size();
-                    ui.allocate_ui_with_layout(
-                        size,
-                        egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                        |ui| {
-                            ui.label(egui::RichText::new("Drop a ROM here").size(30.0).strong());
-                        },
-                    );
-                });
+                if self.gui.resources.textures.is_empty() {
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        let size = ui.available_size();
+                        ui.allocate_ui_with_layout(
+                            size,
+                            egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                            |ui| {
+                                ui.label(
+                                    egui::RichText::new("Drop a ROM here").size(30.0).strong(),
+                                );
+                            },
+                        );
+                    });
+                }
             });
         });
 
@@ -241,12 +211,13 @@ impl Context {
         let clipped_primitives = self
             .egui_context
             .tessellate(full_output.shapes, full_output.pixels_per_point);
-        while self.bitmaps.len() > 0 {
-            let descriptor_set = self
-                .renderer
-                .create_bitmap_descriptor_set(&self.bitmaps.pop().unwrap())?;
-            let texture_id = self.egui_renderer.add_user_texture(descriptor_set);
-            self.textures.push(texture_id);
+        if !self.bitmaps.is_empty() {
+            self.gui.resources.textures = HashMap::new();
+            for (texture_name, bitmap) in self.bitmaps.drain(..) {
+                let descriptor_set = self.renderer.create_bitmap_descriptor_set(&bitmap)?;
+                let texture_id = self.egui_renderer.add_user_texture(descriptor_set);
+                self.gui.resources.textures.insert(texture_name, texture_id);
+            }
         }
         self.renderer.get_next_image_index()?;
         self.renderer.transition_image_layout(
@@ -341,10 +312,15 @@ impl Context {
                         let path = Path::new(&filename);
                         let rom = Self::load_rom(path)?;
                         if let Some(rom) = rom {
-                            self.textures = Vec::new();
                             let chr = rom.chr_slice();
-                            self.bitmaps.push(Bitmap::from_pattern_table(chr, 0));
-                            self.bitmaps.push(Bitmap::from_pattern_table(chr, 1));
+                            self.bitmaps.push((
+                                TextureName::PatternTable1,
+                                Bitmap::from_pattern_table(chr, 0),
+                            ));
+                            self.bitmaps.push((
+                                TextureName::PatternTable2,
+                                Bitmap::from_pattern_table(chr, 1),
+                            ));
                             self.rom = Some(rom);
                         };
                     }

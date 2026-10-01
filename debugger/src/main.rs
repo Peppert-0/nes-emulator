@@ -8,6 +8,7 @@ use egui;
 use egui_ash_renderer;
 
 mod bitmap;
+mod gui;
 mod renderer;
 mod sdl;
 
