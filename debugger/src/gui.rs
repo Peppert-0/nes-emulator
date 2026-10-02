@@ -14,7 +14,7 @@ pub struct Resources {
     pub textures: HashMap<TextureName, TextureId>,
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Hash, PartialEq, Eq, Clone)]
 pub enum ComponentId {
     PatternTables,
     CentralPanel,
@@ -195,6 +195,22 @@ impl Tray {
     fn new() -> Self {
         Self { is_expanded: true }
     }
+    fn button(
+        &self,
+        ui: &mut egui::Ui,
+        context: &mut GuiContext,
+        window: ComponentId,
+        title: String,
+    ) -> () {
+        let button =
+            ui.selectable_label(*context.window_open(window.clone()), format!("{}", title));
+        if button.hovered() {
+            ui.set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if button.clicked() {
+            context.toggle_window(window.clone());
+        }
+    }
 }
 impl Component for Tray {
     fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
@@ -206,19 +222,16 @@ impl Component for Tray {
                 Frame::group(ui.style()).inner_margin(0.0).show(ui, |ui| {
                     ui.set_min_size(ui.available_size());
                     ui.vertical_centered(|ui| {
-                        ui.add_space(10.0);
+                        ui.add_space(5.0);
                         ui.heading("Tools");
+                        ui.separator();
 
-                        ui.add_space(8.0);
-
-                        ui.selectable_label(
-                            *context.window_open(ComponentId::PatternTables),
-                            "Pattern Tables",
-                        )
-                        .clicked()
-                        .then(|| {
-                            context.toggle_window(ComponentId::PatternTables);
-                        });
+                        self.button(
+                            ui,
+                            context,
+                            ComponentId::PatternTables,
+                            "Pattern Tables".into(),
+                        );
                     })
                 })
             });

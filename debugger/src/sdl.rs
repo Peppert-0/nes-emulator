@@ -13,6 +13,7 @@ use egui::load::SizedTexture;
 use egui::{FullOutput, PointerButton, Pos2, RawInput, TextureId, Widget};
 use egui_ash_renderer::{DynamicRendering, allocator::DefaultAllocator};
 use sdl3::event::WindowEvent;
+use sdl3::mouse::Cursor;
 use sdl3::{
     EventPump, Sdl, VideoSubsystem,
     event::Event,
@@ -45,6 +46,21 @@ pub struct Context {
     bitmaps: Vec<(TextureName, Bitmap)>,
     gui: Gui,
     focused: bool,
+    cursors: Cursors,
+}
+
+struct Cursors {
+    default: Cursor,
+    pointing: Cursor,
+}
+
+impl Cursors {
+    pub fn new() -> Result<Self, ContextError> {
+        let default = Cursor::from_system(sdl3::mouse::SystemCursor::Arrow)?;
+        let pointing = Cursor::from_system(sdl3::mouse::SystemCursor::Hand)?;
+
+        Ok(Self { default, pointing })
+    }
 }
 
 #[derive(Debug)]
@@ -125,6 +141,7 @@ impl Context {
         let bitmaps = Vec::new();
         let gui = Gui::new();
         let focused = true;
+        let cursors = Cursors::new()?;
 
         Ok(Self {
             sdl_context,
@@ -138,6 +155,7 @@ impl Context {
             bitmaps,
             gui,
             focused,
+            cursors,
         })
     }
     fn build_egui_renderer(
@@ -175,19 +193,17 @@ impl Context {
 
         Ok(full_output)
     }
-    pub fn render_gui(&mut self, events: Vec<egui::Event>) -> Result<(), ContextError> {
+    pub fn render_gui(&mut self, mut full_output: FullOutput) -> Result<(), ContextError> {
         let device = self.renderer.context.device.clone();
         let command_buffer = self.renderer.command.buffer;
         unsafe {
             device.wait_for_fences(&[self.renderer.sync.in_flight_fence], true, u64::MAX)?;
             device.reset_fences(&[self.renderer.sync.in_flight_fence])?
         };
-        let raw_input = self.build_raw_input(events)?;
         unsafe {
             device.reset_command_buffer(command_buffer, ash::vk::CommandBufferResetFlags::empty())
         }?;
         self.renderer.begin_recording_commands()?;
-        let mut full_output = self.build_gui(raw_input)?;
         for (id, deltas) in full_output.textures_delta.set.drain() {
             for delta in deltas {
                 self.egui_renderer.set_texture(
@@ -357,10 +373,27 @@ impl Context {
                     .create_swap_chain((width, height), Some(self.renderer.swapchain.swapchain))?;
                 self.renderer.recreate_swapchain(swapchain_khr)?;
             }
-            self.render_gui(egui_events)?;
+            let raw_input = self.build_raw_input(egui_events)?;
+            let full_output = self.build_gui(raw_input)?;
+            let cursor = full_output.platform_output.cursor_icon;
+            self.set_cursor(cursor)?;
+            self.render_gui(full_output)?;
 
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 165));
         }
+    }
+    fn set_cursor(&mut self, cursor: egui::CursorIcon) -> Result<(), ContextError> {
+        match cursor {
+            egui::CursorIcon::Default => {
+                self.cursors.default.set();
+            }
+            egui::CursorIcon::PointingHand => {
+                self.cursors.pointing.set();
+            }
+            _ => {}
+        }
+
+        Ok(())
     }
     fn map_event(event: Event) -> Result<Option<egui::Event>, ContextError> {
         match event {
