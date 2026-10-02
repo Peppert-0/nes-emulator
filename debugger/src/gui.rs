@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use egui::{TextureId, Widget, load::SizedTexture};
+use egui::{Align, TextureId, Vec2, Widget, load::SizedTexture};
 
 pub trait Component {
     fn display(&mut self, ui: &mut egui::Ui, resources: &Resources) -> ();
@@ -63,16 +63,28 @@ impl PatternTables {
     fn new() -> Self {
         Self { scale: 1.0 }
     }
+    fn display_pattern_table(&self, ui: &mut egui::Ui, table: &TextureId, size: f32) -> () {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            let texture = SizedTexture {
+                id: *table,
+                size: Vec2 { x: 128.0, y: 128.0 },
+            };
+            egui::Image::new(texture)
+                .fit_to_exact_size(Vec2::splat(size))
+                .ui(ui);
+        });
+    }
 }
 impl Component for PatternTables {
     fn display(&mut self, ui: &mut egui::Ui, resources: &Resources) -> () {
         egui::Window::new("Pattern Tables")
-            .auto_sized()
+            .resizable(true)
+            .default_size(Vec2::new(400.0, 300.0))
             .show(ui, |ui| {
                 if resources.textures.is_empty() {
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         ui.allocate_ui_with_layout(
-                            egui::Vec2 { x: 256.0, y: 128.0 },
+                            ui.available_size(),
                             egui::Layout::centered_and_justified(egui::Direction::TopDown),
                             |ui| {
                                 ui.label("Drag and drop a ROM file to display its pattern tables.");
@@ -80,28 +92,21 @@ impl Component for PatternTables {
                         );
                     });
                 } else {
-                    ui.add(egui::Slider::new(&mut self.scale, 1.0..=5.0).text("Scale"));
-                    ui.add_space(10.0);
+                    let available = ui.available_size();
+                    let table_size = (available.x - 36.0) / 2.0;
+
                     ui.horizontal(|ui| {
-                        for (texture_name, texture_id) in
-                            resources.textures.iter().filter(|(name, id)| {
-                                matches!(
-                                    name,
-                                    TextureName::PatternTable1 | TextureName::PatternTable2
-                                )
-                            })
-                        {
-                            egui::Frame::group(ui.style()).show(ui, |ui| {
-                                let texture = SizedTexture {
-                                    id: *texture_id,
-                                    size: egui::Vec2 {
-                                        x: 128.0 * self.scale,
-                                        y: 128.0 * self.scale,
-                                    },
-                                };
-                                egui::Image::new(texture).ui(ui);
-                            });
-                        }
+                        self.display_pattern_table(
+                            ui,
+                            &resources.textures[&TextureName::PatternTable1],
+                            table_size,
+                        );
+
+                        self.display_pattern_table(
+                            ui,
+                            &resources.textures[&TextureName::PatternTable2],
+                            table_size,
+                        );
                     });
                 }
             });

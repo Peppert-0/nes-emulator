@@ -1,6 +1,26 @@
-use std::{fs::File, io::Read};
+use std::{fmt::Display, fs::File, io::Read};
+
+use sha2::{Digest, Sha256};
+
+#[derive(PartialEq, Clone, Copy)]
+pub struct Sha256Hash([u8; 32]);
+
+impl From<sha2::digest::Output<Sha256>> for Sha256Hash {
+    fn from(hash: sha2::digest::Output<Sha256>) -> Self {
+        Self(hash.into())
+    }
+}
+impl Display for Sha256Hash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for byte in self.0 {
+            write!(f, "{byte:02x}")?;
+        }
+        Ok(())
+    }
+}
 
 pub struct Cartridge {
+    pub id: Sha256Hash,
     pub header: InesHeader,
     pub prg_rom: Vec<u8>,
     pub chr: ChrMemory,
@@ -91,6 +111,7 @@ impl Cartridge {
     pub fn load_from_file(rom: &mut File) -> Result<Self, NesParseError> {
         let mut bytes: Vec<u8> = Vec::new();
         rom.read_to_end(&mut bytes);
+        let id: Sha256Hash = Sha256::digest(&bytes).into();
         let header = InesHeader::parse(&mut bytes)?;
 
         let mut prg_start = 0x0010u16;
@@ -112,6 +133,7 @@ impl Cartridge {
         };
 
         Ok(Self {
+            id,
             header,
             prg_rom,
             chr: ChrMemory::Rom(chr_rom),

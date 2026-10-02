@@ -398,6 +398,9 @@ impl VulkanContext {
                 SwapchainKHR::null()
             });
         let swapchain = unsafe { swapchain_device.create_swapchain(&swapchain_create_info, None) }?;
+        if let Some(old) = old_swapchain {
+            unsafe { swapchain_device.destroy_swapchain(old, None) };
+        }
 
         Ok(swapchain)
     }
@@ -537,6 +540,12 @@ impl Renderer {
     }
     pub fn recreate_swapchain(&mut self, swapchain: SwapchainKHR) -> Result<(), RendererError> {
         unsafe { self.context.device.device_wait_idle() }?;
+        unsafe {
+            for image_view in &self.swapchain.image_views {
+                self.context.device.destroy_image_view(*image_view, None);
+            }
+        };
+
         self.swapchain = Swapchain::new(&self.context, swapchain)?;
         Ok(())
     }

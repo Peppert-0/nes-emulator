@@ -44,6 +44,7 @@ pub struct Context {
     egui_renderer: egui_ash_renderer::Renderer<DefaultAllocator>,
     bitmaps: Vec<(TextureName, Bitmap)>,
     gui: Gui,
+    focused: bool,
 }
 
 #[derive(Debug)]
@@ -123,6 +124,7 @@ impl Context {
         let egui_renderer = Self::build_egui_renderer(&renderer)?;
         let bitmaps = Vec::new();
         let gui = Gui::new();
+        let focused = true;
 
         Ok(Self {
             sdl_context,
@@ -135,6 +137,7 @@ impl Context {
             egui_renderer,
             bitmaps,
             gui,
+            focused,
         })
     }
     fn build_egui_renderer(
@@ -303,7 +306,11 @@ impl Context {
     }
     pub fn main_loop(&mut self) -> Result<(), ContextError> {
         'running: loop {
-            let events: Vec<Event> = self.event_pump.poll_iter().collect();
+            let events: Vec<Event> = if self.focused {
+                self.event_pump.poll_iter().collect()
+            } else {
+                [self.event_pump.wait_event()].to_vec()
+            };
             let mut egui_events: Vec<egui::Event> = vec![];
             for event in events {
                 match event {
@@ -311,22 +318,36 @@ impl Context {
                     Event::DropFile { filename, .. } => {
                         let path = Path::new(&filename);
                         let rom = Self::load_rom(path)?;
-                        if let Some(rom) = rom {
-                            let chr = rom.chr_slice();
-                            self.bitmaps.push((
-                                TextureName::PatternTable1,
-                                Bitmap::from_pattern_table(chr, 0),
-                            ));
-                            self.bitmaps.push((
-                                TextureName::PatternTable2,
-                                Bitmap::from_pattern_table(chr, 1),
-                            ));
-                            self.rom = Some(rom);
+                        if let Some(new_rom) = rom {
+                            if self.rom.as_ref().is_some_and(|old| old.id == new_rom.id) {
+                                eprintln!(
+                                    "ROM already loaded with hash: {}",
+                                    self.rom.as_ref().unwrap().id
+                                );
+                            } else {
+                                let chr = new_rom.chr_slice();
+                                self.bitmaps.push((
+                                    TextureName::PatternTable1,
+                                    Bitmap::from_pattern_table(chr, 0),
+                                ));
+                                self.bitmaps.push((
+                                    TextureName::PatternTable2,
+                                    Bitmap::from_pattern_table(chr, 1),
+                                ));
+                                eprintln!("New ROM loaded with hash: {}", new_rom.id);
+                                self.rom = Some(new_rom);
+                            }
                         };
                     }
                     Event::Window { win_event, .. } => match win_event {
                         WindowEvent::Resized(width, height) => {
                             self.renderer.swapchain.is_stale = true;
+                        }
+                        WindowEvent::FocusLost => {
+                            self.focused = false;
+                        }
+                        WindowEvent::FocusGained => {
+                            self.focused = true;
                         }
                         _ => {}
                     },
