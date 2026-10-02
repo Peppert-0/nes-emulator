@@ -166,24 +166,11 @@ impl Context {
     }
     fn build_gui(&mut self, input: RawInput) -> Result<FullOutput, ContextError> {
         let full_output = self.egui_context.run_ui(input, |ui| {
+            self.gui.display_component(ui, &gui::ComponentId::Tray);
             self.gui
                 .display_component(ui, &gui::ComponentId::PatternTables);
-            egui::CentralPanel::default().show(ui, |ui| {
-                if self.gui.resources.textures.is_empty() {
-                    egui::Frame::group(ui.style()).show(ui, |ui| {
-                        let size = ui.available_size();
-                        ui.allocate_ui_with_layout(
-                            size,
-                            egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                            |ui| {
-                                ui.label(
-                                    egui::RichText::new("Drop a ROM here").size(30.0).strong(),
-                                );
-                            },
-                        );
-                    });
-                }
-            });
+            self.gui
+                .display_component(ui, &gui::ComponentId::CentralPanel);
         });
 
         Ok(full_output)
@@ -215,11 +202,15 @@ impl Context {
             .egui_context
             .tessellate(full_output.shapes, full_output.pixels_per_point);
         if !self.bitmaps.is_empty() {
-            self.gui.resources.textures = HashMap::new();
+            self.gui.context.resources.textures = HashMap::new();
             for (texture_name, bitmap) in self.bitmaps.drain(..) {
                 let descriptor_set = self.renderer.create_bitmap_descriptor_set(&bitmap)?;
                 let texture_id = self.egui_renderer.add_user_texture(descriptor_set);
-                self.gui.resources.textures.insert(texture_name, texture_id);
+                self.gui
+                    .context
+                    .resources
+                    .textures
+                    .insert(texture_name, texture_id);
             }
         }
         self.renderer.get_next_image_index()?;

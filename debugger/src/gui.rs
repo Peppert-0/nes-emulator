@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use egui::{Align, TextureId, Vec2, Widget, load::SizedTexture};
+use egui::{Align, Frame, Margin, TextureId, Vec2, Widget, load::SizedTexture};
 
 pub trait Component {
-    fn display(&mut self, ui: &mut egui::Ui, resources: &Resources) -> ();
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> ();
 }
 
 pub struct Arguments {
@@ -17,6 +17,8 @@ pub struct Resources {
 #[derive(Hash, PartialEq, Eq)]
 pub enum ComponentId {
     PatternTables,
+    CentralPanel,
+    Tray,
 }
 
 #[derive(Hash, PartialEq, Eq)]
@@ -26,89 +28,199 @@ pub enum TextureName {
 }
 
 struct PatternTables {
+    open: bool,
     scale: f32,
+}
+struct CentralPanel {}
+struct Tray {
+    is_expanded: bool,
 }
 
 pub struct Gui {
-    pub resources: Resources,
+    pub context: GuiContext,
     pub components: HashMap<ComponentId, Box<dyn Component>>,
 }
+pub struct GuiContext {
+    pub resources: Resources,
+    pub windows: HashMap<ComponentId, bool>,
+}
 
-impl Gui {
-    pub fn new() -> Self {
+impl GuiContext {
+    fn new() -> Self {
         let resources = Resources {
             textures: HashMap::new(),
         };
+        let windows = Self::get_windows();
+
+        Self { resources, windows }
+    }
+    fn get_windows() -> HashMap<ComponentId, bool> {
+        let windows = [(ComponentId::PatternTables, true)];
+        windows.into_iter().collect()
+    }
+    fn window_open(&mut self, window: ComponentId) -> &mut bool {
+        self.windows.get_mut(&window).unwrap()
+    }
+    fn toggle_window(&mut self, window: ComponentId) -> () {
+        let open = self.window_open(window);
+        if *open {
+            *open = false;
+        } else {
+            *open = true;
+        }
+    }
+}
+impl Gui {
+    pub fn new() -> Self {
+        let context = GuiContext::new();
         let components = Self::get_components();
 
         Self {
-            resources,
+            context,
             components,
         }
     }
     fn get_components() -> HashMap<ComponentId, Box<dyn Component>> {
-        let components = [(
-            ComponentId::PatternTables,
-            Box::new(PatternTables::new()) as Box<dyn Component>,
-        )];
+        let components = [
+            (
+                ComponentId::PatternTables,
+                Box::new(PatternTables::new()) as Box<dyn Component>,
+            ),
+            (
+                ComponentId::CentralPanel,
+                Box::new(CentralPanel::new()) as Box<dyn Component>,
+            ),
+            (
+                ComponentId::Tray,
+                Box::new(Tray::new()) as Box<dyn Component>,
+            ),
+        ];
         components.into_iter().collect()
     }
     pub fn display_component(&mut self, ui: &mut egui::Ui, id: &ComponentId) -> () {
         let component = self.components.get_mut(id).unwrap();
-        component.display(ui, &self.resources);
+        component.display(ui, &mut self.context);
     }
 }
 
 impl PatternTables {
     fn new() -> Self {
-        Self { scale: 1.0 }
+        Self {
+            open: true,
+            scale: 1.0,
+        }
     }
-    fn display_pattern_table(&self, ui: &mut egui::Ui, table: &TextureId, size: f32) -> () {
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            let texture = SizedTexture {
-                id: *table,
-                size: Vec2 { x: 128.0, y: 128.0 },
-            };
-            egui::Image::new(texture)
-                .fit_to_exact_size(Vec2::splat(size))
-                .ui(ui);
-        });
+    fn display_pattern_table(ui: &mut egui::Ui, table: &TextureId, size: f32) -> () {
+        egui::Frame::group(ui.style())
+            .inner_margin(0.0)
+            .show(ui, |ui| {
+                let texture = SizedTexture {
+                    id: *table,
+                    size: Vec2 { x: 128.0, y: 128.0 },
+                };
+                egui::Image::new(texture)
+                    .fit_to_exact_size(Vec2::splat(size))
+                    .ui(ui);
+            });
     }
 }
 impl Component for PatternTables {
-    fn display(&mut self, ui: &mut egui::Ui, resources: &Resources) -> () {
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
         egui::Window::new("Pattern Tables")
+            .open(
+                context
+                    .windows
+                    .get_mut(&ComponentId::PatternTables)
+                    .unwrap(),
+            )
             .resizable(true)
-            .default_size(Vec2::new(400.0, 300.0))
+            .default_size(Vec2::new(400.0, 235.0))
             .show(ui, |ui| {
-                if resources.textures.is_empty() {
+                if context.resources.textures.is_empty() {
                     egui::Frame::group(ui.style()).show(ui, |ui| {
                         ui.allocate_ui_with_layout(
                             ui.available_size(),
                             egui::Layout::centered_and_justified(egui::Direction::TopDown),
                             |ui| {
-                                ui.label("Drag and drop a ROM file to display its pattern tables.");
+                                ui.label(
+                                    "Drag and drop a ROM file to display its pattern tables here",
+                                );
                             },
                         );
                     });
                 } else {
                     let available = ui.available_size();
-                    let table_size = (available.x - 36.0) / 2.0;
+                    let table_size = (available.x - 12.0) / 2.0;
 
                     ui.horizontal(|ui| {
-                        self.display_pattern_table(
+                        Self::display_pattern_table(
                             ui,
-                            &resources.textures[&TextureName::PatternTable1],
+                            &context.resources.textures[&TextureName::PatternTable1],
                             table_size,
                         );
 
-                        self.display_pattern_table(
+                        Self::display_pattern_table(
                             ui,
-                            &resources.textures[&TextureName::PatternTable2],
+                            &context.resources.textures[&TextureName::PatternTable2],
                             table_size,
                         );
                     });
                 }
+            });
+    }
+}
+impl CentralPanel {
+    fn new() -> Self {
+        Self {}
+    }
+}
+impl Component for CentralPanel {
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
+        egui::CentralPanel::default().show(ui, |ui| {
+            egui::Frame::group(ui.style())
+                .outer_margin(0.0)
+                .show(ui, |ui| {
+                    ui.set_min_size(ui.available_size());
+
+                    if context.resources.textures.is_empty() {
+                        ui.centered_and_justified(|ui| {
+                            ui.label(egui::RichText::new("Drop a ROM here").size(30.0).strong());
+                        });
+                    }
+                });
+        });
+    }
+}
+impl Tray {
+    fn new() -> Self {
+        Self { is_expanded: true }
+    }
+}
+impl Component for Tray {
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
+        egui::Panel::right("Tray")
+            .show_separator_line(false)
+            .frame(Frame::central_panel(ui.style()).outer_margin(0.0))
+            .max_size(120.0)
+            .show(ui, |ui| {
+                Frame::group(ui.style()).inner_margin(0.0).show(ui, |ui| {
+                    ui.set_min_size(ui.available_size());
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(10.0);
+                        ui.heading("Tools");
+
+                        ui.add_space(8.0);
+
+                        ui.selectable_label(
+                            *context.window_open(ComponentId::PatternTables),
+                            "Pattern Tables",
+                        )
+                        .clicked()
+                        .then(|| {
+                            context.toggle_window(ComponentId::PatternTables);
+                        });
+                    })
+                })
             });
     }
 }
