@@ -89,7 +89,7 @@ fn test_rom() -> std::io::Result<()> {
     let mut rom = File::open("tests/roms/nestest.nes")?;
     let log_file = File::open("tests/logs/nestest.log")?;
     let log = BufReader::new(log_file);
-    let mut console = console::Console::new(&mut rom);
+    let mut console = console::Console::new(&mut rom).unwrap();
     console.cpu.pc = 0xC000;
     console.cpu.p = 0x24;
 

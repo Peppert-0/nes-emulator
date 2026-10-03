@@ -1,3 +1,4 @@
+use core::console::ConsoleView;
 use std::collections::{HashMap, HashSet};
 
 use egui::{Align, Frame, Margin, TextureId, Vec2, Widget, load::SizedTexture};
@@ -17,6 +18,7 @@ pub struct Resources {
 #[derive(Hash, PartialEq, Eq, Clone)]
 pub enum ComponentId {
     PatternTables,
+    CpuViewWindow,
     CentralPanel,
     Tray,
 }
@@ -27,14 +29,10 @@ pub enum TextureName {
     PatternTable2,
 }
 
-struct PatternTables {
-    open: bool,
-    scale: f32,
-}
+struct PatternTables {}
+struct CpuViewWindow {}
 struct CentralPanel {}
-struct Tray {
-    is_expanded: bool,
-}
+struct Tray {}
 
 pub struct Gui {
     pub context: GuiContext,
@@ -43,6 +41,7 @@ pub struct Gui {
 pub struct GuiContext {
     pub resources: Resources,
     pub windows: HashMap<ComponentId, bool>,
+    pub emulator: Option<ConsoleView>,
 }
 
 impl GuiContext {
@@ -51,11 +50,19 @@ impl GuiContext {
             textures: HashMap::new(),
         };
         let windows = Self::get_windows();
+        let emulator = None;
 
-        Self { resources, windows }
+        Self {
+            resources,
+            windows,
+            emulator,
+        }
     }
     fn get_windows() -> HashMap<ComponentId, bool> {
-        let windows = [(ComponentId::PatternTables, true)];
+        let windows = [
+            (ComponentId::PatternTables, false),
+            (ComponentId::CpuViewWindow, false),
+        ];
         windows.into_iter().collect()
     }
     fn window_open(&mut self, window: ComponentId) -> &mut bool {
@@ -87,6 +94,10 @@ impl Gui {
                 Box::new(PatternTables::new()) as Box<dyn Component>,
             ),
             (
+                ComponentId::CpuViewWindow,
+                Box::new(CpuViewWindow::new()) as Box<dyn Component>,
+            ),
+            (
                 ComponentId::CentralPanel,
                 Box::new(CentralPanel::new()) as Box<dyn Component>,
             ),
@@ -105,10 +116,7 @@ impl Gui {
 
 impl PatternTables {
     fn new() -> Self {
-        Self {
-            open: true,
-            scale: 1.0,
-        }
+        Self {}
     }
     fn display_pattern_table(ui: &mut egui::Ui, table: &TextureId, size: f32) -> () {
         egui::Frame::group(ui.style())
@@ -169,6 +177,74 @@ impl Component for PatternTables {
             });
     }
 }
+impl CpuViewWindow {
+    fn new() -> Self {
+        Self {}
+    }
+}
+impl Component for CpuViewWindow {
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
+        egui::Window::new("CPU View")
+            .open(
+                context
+                    .windows
+                    .get_mut(&ComponentId::CpuViewWindow)
+                    .unwrap(),
+            )
+            .resizable(false)
+            .fixed_size(Vec2::new(280.0, 0.0))
+            .show(ui, |ui| {
+                if let Some(emulator) = &context.emulator {
+                    let registers = [
+                        (
+                            "Program Counter:",
+                            format!("0x{:04X}", emulator.cpu_view.pc),
+                        ),
+                        ("Stack Pointer:", format!("0x{:02X}", emulator.cpu_view.sp)),
+                        ("Accumulator:", format!("0x{:02X}", emulator.cpu_view.a)),
+                        ("X Register:", format!("0x{:02X}", emulator.cpu_view.x)),
+                        ("Y Register:", format!("0x{:02X}", emulator.cpu_view.y)),
+                        ("Flags:", format!("0x{:02X}", emulator.cpu_view.p)),
+                    ];
+
+                    let row_width = ui.available_width();
+                    let row_height = 20.0;
+                    let name_width = 120.0;
+
+                    for (i, (name, value)) in registers.iter().enumerate() {
+                        let (row_rect, _) = ui.allocate_exact_size(
+                            egui::vec2(row_width, row_height),
+                            egui::Sense::hover(),
+                        );
+
+                        // Alternating background
+                        if i % 2 == 1 {
+                            ui.painter()
+                                .rect_filled(row_rect, 0.0, ui.visuals().code_bg_color);
+                        }
+
+                        // Register name
+                        ui.put(
+                            egui::Rect::from_min_size(
+                                row_rect.min + egui::vec2(4.0, 0.0),
+                                egui::vec2(name_width, row_height),
+                            ),
+                            egui::Label::new(*name),
+                        );
+
+                        // Register value
+                        ui.put(
+                            egui::Rect::from_min_size(
+                                egui::pos2(row_rect.max.x - 4.0 - 60.0, row_rect.min.y),
+                                egui::vec2(60.0, row_height),
+                            ),
+                            egui::Label::new(value).halign(egui::Align::RIGHT),
+                        );
+                    }
+                }
+            });
+    }
+}
 impl CentralPanel {
     fn new() -> Self {
         Self {}
@@ -186,14 +262,19 @@ impl Component for CentralPanel {
                         ui.centered_and_justified(|ui| {
                             ui.label(egui::RichText::new("Drop a ROM here").size(30.0).strong());
                         });
-                    }
+                    };
+                    if let Some(emulator) = &context.emulator {
+                        ui.vertical_centered(|ui| {
+                            ui.heading("Heading");
+                        });
+                    };
                 });
         });
     }
 }
 impl Tray {
     fn new() -> Self {
-        Self { is_expanded: true }
+        Self {}
     }
     fn button(
         &self,
@@ -232,6 +313,7 @@ impl Component for Tray {
                             ComponentId::PatternTables,
                             "Pattern Tables".into(),
                         );
+                        self.button(ui, context, ComponentId::CpuViewWindow, "CPU View".into());
                     })
                 })
             });

@@ -1405,6 +1405,14 @@ pub struct Cpu {
     sp: u8,
     pub p: u8,
 }
+pub struct CpuView {
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    pub pc: u16,
+    pub sp: u8,
+    pub p: u8,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Opcode {
@@ -1419,12 +1427,22 @@ impl Cpu {
             a: 0x00,
             x: 0x00,
             y: 0x00,
-            pc: 0xFFFC,
+            pc: 0x0000,
             sp: 0xFD,
             p: 0b0000_0100,
         }
     }
 
+    pub fn view(&self) -> CpuView {
+        CpuView {
+            a: self.a,
+            x: self.x,
+            y: self.y,
+            pc: self.pc,
+            sp: self.sp,
+            p: self.p,
+        }
+    }
     pub fn trace<B: bus::Bus>(&self, bus: &B) -> String {
         let opcode_byte = bus.read(self.pc);
         let opcode = OPCODES[opcode_byte as usize];
@@ -1504,7 +1522,7 @@ impl Cpu {
     }
 
     pub fn reset<B: bus::Bus>(&mut self, bus: &B) {
-        self.pc = bus.read_u16(self.pc)
+        self.pc = bus.read_u16(0xFFFC);
     }
     pub fn step<B: bus::Bus>(&mut self, bus: &mut B) {
         let opcode = self.fetch(bus);

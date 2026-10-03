@@ -7,7 +7,8 @@ use ash::{
     Entry,
     vk::{AccessFlags2, ImageLayout, PipelineStageFlags2},
 };
-use core::cartridge::Cartridge;
+use core::cartridge::{Cartridge, NesParseError};
+use core::console::{Console, ConsoleView};
 use egui::WidgetType::Image;
 use egui::load::SizedTexture;
 use egui::{FullOutput, PointerButton, Pos2, RawInput, TextureId, Widget};
@@ -36,7 +37,6 @@ use std::{
 
 pub struct Context {
     pub sdl_context: Sdl,
-    rom: Option<Cartridge>,
     egui_context: egui::Context,
     event_pump: EventPump,
     video_subsystem: VideoSubsystem,
@@ -47,6 +47,7 @@ pub struct Context {
     gui: Gui,
     focused: bool,
     cursors: Cursors,
+    emulator: Option<Console>,
 }
 
 struct Cursors {
@@ -73,6 +74,7 @@ pub enum ContextError {
     EguiRenderer(egui_ash_renderer::RendererError),
     Io(std::io::Error),
     VulkanLoad(ash::LoadingError),
+    NesParse(NesParseError),
 }
 
 impl From<sdl3::Error> for ContextError {
@@ -115,9 +117,14 @@ impl From<ash::LoadingError> for ContextError {
         Self::VulkanLoad(err)
     }
 }
+impl From<NesParseError> for ContextError {
+    fn from(err: NesParseError) -> Self {
+        Self::NesParse(err)
+    }
+}
 
 impl Context {
-    pub fn new(rom: Option<Cartridge>) -> Result<Self, ContextError> {
+    pub fn new() -> Result<Self, ContextError> {
         let sdl_context = sdl3::init()?;
         let egui_context = egui::Context::default();
         let event_pump = sdl_context.event_pump()?;
@@ -142,10 +149,10 @@ impl Context {
         let gui = Gui::new();
         let focused = true;
         let cursors = Cursors::new()?;
+        let emulator = None;
 
         Ok(Self {
             sdl_context,
-            rom,
             egui_context,
             event_pump,
             video_subsystem,
@@ -156,6 +163,7 @@ impl Context {
             gui,
             focused,
             cursors,
+            emulator,
         })
     }
     fn build_egui_renderer(
@@ -187,6 +195,8 @@ impl Context {
             self.gui.display_component(ui, &gui::ComponentId::Tray);
             self.gui
                 .display_component(ui, &gui::ComponentId::PatternTables);
+            self.gui
+                .display_component(ui, &gui::ComponentId::CpuViewWindow);
             self.gui
                 .display_component(ui, &gui::ComponentId::CentralPanel);
         });
@@ -324,27 +334,32 @@ impl Context {
                     Event::Quit { .. } => break 'running Ok(()),
                     Event::DropFile { filename, .. } => {
                         let path = Path::new(&filename);
-                        let rom = Self::load_rom(path)?;
-                        if let Some(new_rom) = rom {
-                            if self.rom.as_ref().is_some_and(|old| old.id == new_rom.id) {
-                                eprintln!(
-                                    "ROM already loaded with hash: {}",
-                                    self.rom.as_ref().unwrap().id
-                                );
-                            } else {
-                                let chr = new_rom.chr_slice();
+                        let mut file = File::open(path)?;
+                        let emulator = Console::new(&mut file);
+                        match emulator {
+                            Ok(emulator) => {
+                                let emulator_view = ConsoleView::new(&emulator);
                                 self.bitmaps.push((
                                     TextureName::PatternTable1,
-                                    Bitmap::from_pattern_table(chr, 0),
+                                    Bitmap::from_pattern_table(
+                                        emulator.cartridge.borrow().chr_slice(),
+                                        0,
+                                    ),
                                 ));
                                 self.bitmaps.push((
                                     TextureName::PatternTable2,
-                                    Bitmap::from_pattern_table(chr, 1),
+                                    Bitmap::from_pattern_table(
+                                        emulator.cartridge.borrow().chr_slice(),
+                                        1,
+                                    ),
                                 ));
-                                eprintln!("New ROM loaded with hash: {}", new_rom.id);
-                                self.rom = Some(new_rom);
+                                self.emulator = Some(emulator);
+                                self.gui.context.emulator = Some(emulator_view);
                             }
-                        };
+                            Err(e) => {
+                                eprintln!("File could not be identified as an NES ROM: {:?}", path);
+                            }
+                        }
                     }
                     Event::Window { win_event, .. } => match win_event {
                         WindowEvent::Resized(width, height) => {
