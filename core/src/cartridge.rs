@@ -1,4 +1,4 @@
-use std::{fmt::Display, fs::File, io::Read};
+use std::{ffi::OsString, fmt::Display, fs::File, io::Read, path::Path};
 
 use sha2::{Digest, Sha256};
 
@@ -25,6 +25,9 @@ pub struct Cartridge {
     pub prg_rom: Vec<u8>,
     pub chr: ChrMemory,
     pub mapper: Box<dyn Mapper>,
+}
+pub struct CartridgeView {
+    pub id: Sha256Hash,
 }
 
 pub enum ChrMemory {
@@ -152,8 +155,10 @@ impl Cartridge {
             panic!("not rom")
         }
     }
+    pub fn view(&self) -> CartridgeView {
+        CartridgeView { id: self.id }
+    }
 }
-
 impl InesHeader {
     pub fn parse(bytes: &[u8]) -> Result<Self, NesParseError> {
         if !bytes.starts_with(MAGIC) {

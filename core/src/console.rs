@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::Shared;
 use crate::bus::{CpuBus, PpuBus};
-use crate::cartridge::{Cartridge, NesParseError};
+use crate::cartridge::{Cartridge, CartridgeView, NesParseError};
 use crate::cpu::{Cpu, CpuView};
 use crate::ppu::{Ppu, PpuRegisters};
 
@@ -17,6 +17,7 @@ pub struct Console {
 }
 pub struct ConsoleView {
     pub cpu_view: CpuView,
+    pub cartridge_view: CartridgeView,
 }
 
 impl Console {
@@ -40,7 +41,11 @@ impl Console {
 impl ConsoleView {
     pub fn new(console: &Console) -> Self {
         let cpu_view = console.cpu.view();
+        let cartridge_view = console.cartridge.borrow().view();
 
-        Self { cpu_view }
+        Self {
+            cpu_view,
+            cartridge_view,
+        }
     }
 }

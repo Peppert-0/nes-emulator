@@ -1,7 +1,7 @@
 use core::console::ConsoleView;
 use std::collections::{HashMap, HashSet};
 
-use egui::{Align, Frame, Margin, TextureId, Vec2, Widget, load::SizedTexture};
+use egui::{Align, Color32, Frame, Margin, TextureId, Vec2, Widget, load::SizedTexture};
 
 pub trait Component {
     fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> ();
@@ -212,16 +212,26 @@ impl Component for CpuViewWindow {
                     let name_width = 120.0;
 
                     for (i, (name, value)) in registers.iter().enumerate() {
+                        let alternate = i % 2 == 1;
+
                         let (row_rect, _) = ui.allocate_exact_size(
                             egui::vec2(row_width, row_height),
                             egui::Sense::hover(),
                         );
 
-                        // Alternating background
-                        if i % 2 == 1 {
-                            ui.painter()
-                                .rect_filled(row_rect, 0.0, ui.visuals().code_bg_color);
+                        let white = Color32::from_hex("#ebdbb2").unwrap();
+                        let grey = Color32::from_hex("#292929").unwrap();
+                        let black = Color32::from_hex("#3c3836").unwrap();
+
+                        if alternate {
+                            ui.painter().rect_filled(row_rect, 0.0, grey);
                         }
+
+                        let text_color = if alternate {
+                            ui.visuals().text_color()
+                        } else {
+                            ui.visuals().text_color()
+                        };
 
                         // Register name
                         ui.put(
@@ -229,7 +239,7 @@ impl Component for CpuViewWindow {
                                 row_rect.min + egui::vec2(4.0, 0.0),
                                 egui::vec2(name_width, row_height),
                             ),
-                            egui::Label::new(*name),
+                            egui::Label::new(egui::RichText::new(*name).color(text_color)),
                         );
 
                         // Register value
@@ -238,7 +248,8 @@ impl Component for CpuViewWindow {
                                 egui::pos2(row_rect.max.x - 4.0 - 60.0, row_rect.min.y),
                                 egui::vec2(60.0, row_height),
                             ),
-                            egui::Label::new(value).halign(egui::Align::RIGHT),
+                            egui::Label::new(egui::RichText::new(value).color(text_color))
+                                .halign(egui::Align::RIGHT),
                         );
                     }
                 }
@@ -265,7 +276,7 @@ impl Component for CentralPanel {
                     };
                     if let Some(emulator) = &context.emulator {
                         ui.vertical_centered(|ui| {
-                            ui.heading("Heading");
+                            ui.heading(format!("{}", emulator.cartridge_view.id));
                         });
                     };
                 });
@@ -283,8 +294,10 @@ impl Tray {
         window: ComponentId,
         title: String,
     ) -> () {
-        let button =
-            ui.selectable_label(*context.window_open(window.clone()), format!("{}", title));
+        let button = ui.add_sized(
+            [ui.available_width() - 6.0, 0.0],
+            egui::Button::selectable(*context.window_open(window.clone()), title),
+        );
         if button.hovered() {
             ui.set_cursor_icon(egui::CursorIcon::PointingHand);
         }
