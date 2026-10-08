@@ -1,3 +1,5 @@
+use builder::Builder;
+
 use crate::console::Console;
 
 pub trait Command {
@@ -10,17 +12,12 @@ impl Console {
     }
 }
 
-#[derive(Default)]
+#[derive(Builder)]
 pub struct Step {
+    #[builder(default = 1)]
     times: u32,
 }
 
-impl Step {
-    fn times(mut self, times: u32) -> Self {
-        self.times = times;
-        self
-    }
-}
 impl Command for Step {
     fn handle(&self, emulator: &mut Console) {
         for time in 0..self.times {

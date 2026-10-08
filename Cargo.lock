@@ -60,6 +60,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "builder"
+version = "0.1.0"
+dependencies = [
+ "builder_derive",
+]
+
+[[package]]
+name = "builder_derive"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -110,6 +125,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 name = "core"
 version = "0.1.0"
 dependencies = [
+ "builder",
  "sha2",
 ]
 

@@ -1,0 +1,7 @@
+[package]
+name = "builder"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+builder_derive = { version = "0.1.0", path = "../builder_derive" }
