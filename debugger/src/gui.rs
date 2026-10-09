@@ -11,10 +11,6 @@ pub trait Component {
     fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> ();
 }
 
-pub struct Arguments {
-    pub rom_loaded: bool,
-}
-
 pub struct Resources {
     pub textures: HashMap<TextureName, TextureId>,
 }
@@ -39,7 +35,7 @@ struct PatternTables {}
 #[derive(Builder)]
 struct CpuViewWindow {}
 #[derive(Builder)]
-struct ControlsWindow {}
+pub struct ControlsWindow {}
 #[derive(Builder)]
 struct CentralPanel {}
 #[derive(Builder)]
@@ -53,6 +49,7 @@ pub struct GuiContext {
     pub resources: Resources,
     pub windows: HashMap<ComponentId, bool>,
     pub emulator: Option<ConsoleView>,
+    pub emulator_running: bool,
     pub commands: Vec<Box<dyn Command>>,
 }
 
@@ -63,12 +60,14 @@ impl GuiContext {
         };
         let windows = Self::get_windows();
         let emulator = None;
+        let emulator_running = false;
         let commands = Vec::new();
 
         Self {
             resources,
             windows,
             emulator,
+            emulator_running,
             commands,
         }
     }
@@ -90,6 +89,13 @@ impl GuiContext {
         } else {
             *open = true;
         }
+    }
+}
+fn toggle(value: &mut bool) {
+    if *value {
+        *value = false;
+    } else {
+        *value = true;
     }
 }
 impl Gui {
@@ -209,13 +215,25 @@ impl Component for CpuViewWindow {
                     let registers = [
                         (
                             "Program Counter:",
-                            format!("0x{:04X}", emulator.cpu_view.pc),
+                            format!("0x{:04X}", emulator.cpu_view.registers.pc),
                         ),
-                        ("Stack Pointer:", format!("0x{:02X}", emulator.cpu_view.sp)),
-                        ("Accumulator:", format!("0x{:02X}", emulator.cpu_view.a)),
-                        ("X Register:", format!("0x{:02X}", emulator.cpu_view.x)),
-                        ("Y Register:", format!("0x{:02X}", emulator.cpu_view.y)),
-                        ("Flags:", format!("0x{:02X}", emulator.cpu_view.p)),
+                        (
+                            "Stack Pointer:",
+                            format!("0x{:02X}", emulator.cpu_view.registers.sp),
+                        ),
+                        (
+                            "Accumulator:",
+                            format!("0x{:02X}", emulator.cpu_view.registers.a),
+                        ),
+                        (
+                            "X Register:",
+                            format!("0x{:02X}", emulator.cpu_view.registers.x),
+                        ),
+                        (
+                            "Y Register:",
+                            format!("0x{:02X}", emulator.cpu_view.registers.y),
+                        ),
+                        ("Flags:", format!("0x{:02X}", emulator.cpu_view.registers.p)),
                     ];
 
                     let row_width = ui.available_width();
@@ -282,6 +300,9 @@ impl Component for ControlsWindow {
                 }
                 if ui.button("Reset").clicked() {
                     context.commands.push(Box::new(command::Reset::new()));
+                }
+                if ui.button("Run").clicked() {
+                    toggle(&mut context.emulator_running);
                 }
             });
     }

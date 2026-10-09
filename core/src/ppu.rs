@@ -53,7 +53,7 @@ impl Ppu {
         }
     }
 
-    fn tick(&mut self) {
+    pub fn tick(&mut self) {
         let mut registers = self.mmio.borrow_mut();
 
         if self.scanline == 241 && self.dot == 1 {
@@ -72,39 +72,6 @@ impl Ppu {
             if self.scanline == 262 {
                 self.scanline = 0;
             }
-        }
-    }
-
-    fn cpu_read(&mut self, address: u16) -> u8 {
-        let mut registers = self.mmio.borrow_mut();
-        match address {
-            0x2000 => registers.ppuctrl,
-            0x2001 => registers.ppumask,
-            0x2002 => {
-                let status = registers.ppustatus;
-                registers.set_status_vblank(false);
-                self.w = false;
-                status
-            }
-            0x2003 => registers.oamaddr,
-            0x2004 => registers.oamdata,
-            0x2005 => registers.ppuscroll,
-            0x2006 => registers.ppuaddr,
-            0x2007 => registers.ppudata,
-            _ => 0,
-        }
-    }
-    fn cpu_write(&mut self, address: u16, value: u8) {
-        let mut registers = self.mmio.borrow_mut();
-        match address {
-            0x2000 => registers.ppuctrl = value,
-            0x2001 => registers.ppumask = value,
-            0x2003 => registers.oamaddr = value,
-            0x2004 => registers.oamdata = value,
-            0x2005 => registers.ppuscroll = value,
-            0x2006 => registers.ppuaddr = value,
-            0x2007 => registers.ppudata = value,
-            _ => {}
         }
     }
 
@@ -210,6 +177,31 @@ impl PpuRegisters {
         }
     }
 
+    pub fn cpu_read(&self, address: u16) -> u8 {
+        match address {
+            0x2000 => self.ppuctrl,
+            0x2001 => self.ppumask,
+            0x2002 => self.ppustatus,
+            0x2003 => self.oamaddr,
+            0x2004 => self.oamdata,
+            0x2005 => self.ppuscroll,
+            0x2006 => self.ppuaddr,
+            0x2007 => self.ppudata,
+            _ => 0,
+        }
+    }
+    pub fn cpu_write(&mut self, address: u16, value: u8) {
+        match address {
+            0x2000 => self.ppuctrl = value,
+            0x2001 => self.ppumask = value,
+            0x2003 => self.oamaddr = value,
+            0x2004 => self.oamdata = value,
+            0x2005 => self.ppuscroll = value,
+            0x2006 => self.ppuaddr = value,
+            0x2007 => self.ppudata = value,
+            _ => {}
+        }
+    }
     fn set_ctrl_nmi(&mut self, value: bool) {
         if value {
             self.ppuctrl |= CTRL_NMI

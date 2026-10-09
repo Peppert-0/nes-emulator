@@ -1406,12 +1406,20 @@ pub struct Cpu {
     pub p: u8,
 }
 pub struct CpuView {
+    pub registers: RegisterView,
+    pub instructions: Vec<InstructionView>,
+}
+pub struct RegisterView {
     pub a: u8,
     pub x: u8,
     pub y: u8,
     pub pc: u16,
     pub sp: u8,
     pub p: u8,
+}
+pub struct InstructionView {
+    pub mnemonic: String,
+    pub operand: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1421,6 +1429,26 @@ pub struct Opcode {
     cycles: u8,
 }
 
+impl CpuView {
+    pub fn update<B: bus::Bus>(&mut self, cpu: &Cpu, bus: &B) -> () {
+        self.registers = RegisterView::new(cpu);
+        let (mnemonic, operand) = cpu.disassemble_next_instruction(bus);
+        self.instructions
+            .push(InstructionView { mnemonic, operand });
+    }
+}
+impl RegisterView {
+    fn new(cpu: &Cpu) -> Self {
+        Self {
+            a: cpu.a,
+            x: cpu.x,
+            y: cpu.y,
+            pc: cpu.pc,
+            sp: cpu.sp,
+            p: cpu.p,
+        }
+    }
+}
 impl Cpu {
     pub fn new() -> Self {
         Cpu {
@@ -1434,14 +1462,44 @@ impl Cpu {
     }
 
     pub fn view(&self) -> CpuView {
-        CpuView {
+        let registers = RegisterView {
             a: self.a,
             x: self.x,
             y: self.y,
             pc: self.pc,
             sp: self.sp,
             p: self.p,
+        };
+        let instructions = Vec::new();
+
+        CpuView {
+            registers,
+            instructions,
         }
+    }
+    fn disassemble_next_instruction<B: bus::Bus>(&self, bus: &B) -> (String, Option<String>) {
+        let opcode_byte = bus.read(self.pc);
+        let opcode = OPCODES[opcode_byte as usize];
+        let mnemonic = format!("{:?}", opcode.instruction);
+        let operand_byte = bus.read(self.pc.wrapping_add(1));
+        let operand_bytes = bus.read_u16(self.pc.wrapping_add(1));
+        let operand = match opcode.mode {
+            AddressingMode::Implicit => None,
+            AddressingMode::Accumulator => Some(format!("A")),
+            AddressingMode::Immediate => Some(format!("#${:02X}", operand_byte)),
+            AddressingMode::ZeroPage => Some(format!("${:02X}", operand_byte)),
+            AddressingMode::ZeroPageX => Some(format!("${:02X}, X", operand_byte)),
+            AddressingMode::ZeroPageY => Some(format!("${:02X}, Y", operand_byte)),
+            AddressingMode::Absolute => Some(format!("${:04X}", operand_bytes)),
+            AddressingMode::AbsoluteX => Some(format!("${:04X}, X", operand_bytes)),
+            AddressingMode::AbsoluteY => Some(format!("${:04X}, Y", operand_bytes)),
+            AddressingMode::Indirect => Some(format!("(${:04X})", operand_bytes)),
+            AddressingMode::IndirectX => Some(format!("(${:02X}, X)", operand_byte)),
+            AddressingMode::IndirectY => Some(format!("(${:02X}), Y", operand_byte)),
+            AddressingMode::Relative => Some(format!("${:02X}", operand_byte)),
+        };
+
+        (mnemonic, operand)
     }
     pub fn trace<B: bus::Bus>(&self, bus: &B) -> String {
         let opcode_byte = bus.read(self.pc);

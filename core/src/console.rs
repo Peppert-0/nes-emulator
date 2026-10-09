@@ -48,4 +48,8 @@ impl ConsoleView {
             cartridge_view,
         }
     }
+    pub fn update(&mut self, console: &Console) {
+        self.cpu_view.update(&console.cpu, &console.cpu_bus);
+        self.cartridge_view = console.cartridge.borrow().view();
+    }
 }

@@ -41,16 +41,20 @@ pub struct CpuBus {
 impl Bus for CpuBus {
     fn read(&self, address: u16) -> u8 {
         let cartridge = self.cartridge.borrow();
+        let ppu_registers = self.ppu_registers.borrow();
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize],
+            0x2000..=0x3FFF => ppu_registers.cpu_read(address & 0x1FF7),
             0x4020..=0xFFFF => cartridge.cpu_read(address),
             _ => 0,
         }
     }
     fn write(&mut self, value: u8, address: u16) {
         let mut cartridge = self.cartridge.borrow_mut();
+        let mut ppu_registers = self.ppu_registers.borrow_mut();
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize] = value,
+            0x2000..=0x3FFF => ppu_registers.cpu_write(address & 0x1FF7, value),
             0x4020..=0xFFFF => cartridge.cpu_write(address, value),
             _ => {}
         }

@@ -1,4 +1,5 @@
 use crate::bitmap::Bitmap;
+use crate::gui::ComponentId::ControlsWindow;
 use crate::gui::TextureName::PatternTable2;
 use crate::gui::{self, Gui, TextureName};
 use crate::renderer::{self, Renderer, RendererError, Swapchain, VulkanContext};
@@ -7,7 +8,9 @@ use ash::{
     Entry,
     vk::{AccessFlags2, ImageLayout, PipelineStageFlags2},
 };
+use builder::Builder;
 use core::cartridge::{Cartridge, NesParseError};
+use core::command;
 use core::console::{Console, ConsoleView};
 use egui::WidgetType::Image;
 use egui::load::SizedTexture;
@@ -27,6 +30,7 @@ use sdl3::{
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{Arguments, format};
 use std::fs::{self, File};
+use std::ops::Deref;
 use std::path::Path;
 use std::{
     ffi::{CString, NulError},
@@ -394,11 +398,16 @@ impl Context {
             let full_output = self.build_gui(raw_input)?;
             let cursor = full_output.platform_output.cursor_icon;
             self.set_cursor(cursor)?;
+            if self.gui.context.emulator_running {
+                self.gui
+                    .context
+                    .commands
+                    .push(Box::new(command::Step::new()));
+            }
             for command in self.gui.context.commands.drain(..) {
                 if let Some(emulator) = &mut self.emulator {
                     command.handle(emulator);
-                    self.gui.context.emulator =
-                        Some(ConsoleView::new(&self.emulator.as_ref().unwrap()));
+                    self.gui.context.emulator.as_mut().unwrap().update(emulator);
                 }
             }
             self.render_gui(full_output)?;
