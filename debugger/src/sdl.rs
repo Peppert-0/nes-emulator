@@ -198,6 +198,8 @@ impl Context {
             self.gui
                 .display_component(ui, &gui::ComponentId::CpuViewWindow);
             self.gui
+                .display_component(ui, &gui::ComponentId::ControlsWindow);
+            self.gui
                 .display_component(ui, &gui::ComponentId::CentralPanel);
         });
 
@@ -392,6 +394,13 @@ impl Context {
             let full_output = self.build_gui(raw_input)?;
             let cursor = full_output.platform_output.cursor_icon;
             self.set_cursor(cursor)?;
+            for command in self.gui.context.commands.drain(..) {
+                if let Some(emulator) = &mut self.emulator {
+                    command.handle(emulator);
+                    self.gui.context.emulator =
+                        Some(ConsoleView::new(&self.emulator.as_ref().unwrap()));
+                }
+            }
             self.render_gui(full_output)?;
 
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 165));

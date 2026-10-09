@@ -1,6 +1,10 @@
-use core::console::ConsoleView;
+use core::{
+    command::{self, Command},
+    console::ConsoleView,
+};
 use std::collections::{HashMap, HashSet};
 
+use builder::Builder;
 use egui::{Align, Color32, Frame, Margin, TextureId, Vec2, Widget, load::SizedTexture};
 
 pub trait Component {
@@ -19,6 +23,7 @@ pub struct Resources {
 pub enum ComponentId {
     PatternTables,
     CpuViewWindow,
+    ControlsWindow,
     CentralPanel,
     Tray,
 }
@@ -29,9 +34,15 @@ pub enum TextureName {
     PatternTable2,
 }
 
+#[derive(Builder)]
 struct PatternTables {}
+#[derive(Builder)]
 struct CpuViewWindow {}
+#[derive(Builder)]
+struct ControlsWindow {}
+#[derive(Builder)]
 struct CentralPanel {}
+#[derive(Builder)]
 struct Tray {}
 
 pub struct Gui {
@@ -42,6 +53,7 @@ pub struct GuiContext {
     pub resources: Resources,
     pub windows: HashMap<ComponentId, bool>,
     pub emulator: Option<ConsoleView>,
+    pub commands: Vec<Box<dyn Command>>,
 }
 
 impl GuiContext {
@@ -51,17 +63,20 @@ impl GuiContext {
         };
         let windows = Self::get_windows();
         let emulator = None;
+        let commands = Vec::new();
 
         Self {
             resources,
             windows,
             emulator,
+            commands,
         }
     }
     fn get_windows() -> HashMap<ComponentId, bool> {
         let windows = [
             (ComponentId::PatternTables, false),
             (ComponentId::CpuViewWindow, false),
+            (ComponentId::ControlsWindow, false),
         ];
         windows.into_iter().collect()
     }
@@ -98,6 +113,10 @@ impl Gui {
                 Box::new(CpuViewWindow::new()) as Box<dyn Component>,
             ),
             (
+                ComponentId::ControlsWindow,
+                Box::new(ControlsWindow::new()) as Box<dyn Component>,
+            ),
+            (
                 ComponentId::CentralPanel,
                 Box::new(CentralPanel::new()) as Box<dyn Component>,
             ),
@@ -115,9 +134,6 @@ impl Gui {
 }
 
 impl PatternTables {
-    fn new() -> Self {
-        Self {}
-    }
     fn display_pattern_table(ui: &mut egui::Ui, table: &TextureId, size: f32) -> () {
         egui::Frame::group(ui.style())
             .inner_margin(0.0)
@@ -175,11 +191,6 @@ impl Component for PatternTables {
                     });
                 }
             });
-    }
-}
-impl CpuViewWindow {
-    fn new() -> Self {
-        Self {}
     }
 }
 impl Component for CpuViewWindow {
@@ -256,9 +267,23 @@ impl Component for CpuViewWindow {
             });
     }
 }
-impl CentralPanel {
-    fn new() -> Self {
-        Self {}
+impl Component for ControlsWindow {
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
+        egui::Window::new("Controls")
+            .open(
+                context
+                    .windows
+                    .get_mut(&ComponentId::ControlsWindow)
+                    .unwrap(),
+            )
+            .show(ui, |ui| {
+                if ui.button("Step").clicked() {
+                    context.commands.push(Box::new(command::Step::new()));
+                }
+                if ui.button("Reset").clicked() {
+                    context.commands.push(Box::new(command::Reset::new()));
+                }
+            });
     }
 }
 impl Component for CentralPanel {
@@ -284,9 +309,6 @@ impl Component for CentralPanel {
     }
 }
 impl Tray {
-    fn new() -> Self {
-        Self {}
-    }
     fn button(
         &self,
         ui: &mut egui::Ui,
@@ -327,6 +349,7 @@ impl Component for Tray {
                             "Pattern Tables".into(),
                         );
                         self.button(ui, context, ComponentId::CpuViewWindow, "CPU View".into());
+                        self.button(ui, context, ComponentId::ControlsWindow, "Controls".into());
                     })
                 })
             });

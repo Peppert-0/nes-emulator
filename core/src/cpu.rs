@@ -1523,6 +1523,7 @@ impl Cpu {
 
     pub fn reset<B: bus::Bus>(&mut self, bus: &B) {
         self.pc = bus.read_u16(0xFFFC);
+        self.sp = self.sp.wrapping_sub(3);
     }
     pub fn step<B: bus::Bus>(&mut self, bus: &mut B) {
         let opcode = self.fetch(bus);
