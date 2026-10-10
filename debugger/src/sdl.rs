@@ -202,6 +202,8 @@ impl Context {
             self.gui
                 .display_component(ui, &gui::ComponentId::CpuViewWindow);
             self.gui
+                .display_component(ui, &gui::ComponentId::InstructionViewWindow);
+            self.gui
                 .display_component(ui, &gui::ComponentId::ControlsWindow);
             self.gui
                 .display_component(ui, &gui::ComponentId::CentralPanel);

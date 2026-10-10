@@ -1,11 +1,14 @@
 use core::{
     command::{self, Command},
     console::ConsoleView,
+    cpu::InstructionView,
 };
 use std::collections::{HashMap, HashSet};
 
 use builder::Builder;
-use egui::{Align, Color32, Frame, Margin, TextureId, Vec2, Widget, load::SizedTexture};
+use egui::{
+    Align, Color32, Frame, Layout, Margin, RichText, TextureId, Vec2, Widget, load::SizedTexture,
+};
 
 pub trait Component {
     fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> ();
@@ -20,6 +23,7 @@ pub enum ComponentId {
     PatternTables,
     CpuViewWindow,
     ControlsWindow,
+    InstructionViewWindow,
     CentralPanel,
     Tray,
 }
@@ -36,6 +40,8 @@ struct PatternTables {}
 struct CpuViewWindow {}
 #[derive(Builder)]
 pub struct ControlsWindow {}
+#[derive(Builder)]
+pub struct InstructionViewWindow {}
 #[derive(Builder)]
 struct CentralPanel {}
 #[derive(Builder)]
@@ -74,8 +80,9 @@ impl GuiContext {
     fn get_windows() -> HashMap<ComponentId, bool> {
         let windows = [
             (ComponentId::PatternTables, false),
-            (ComponentId::CpuViewWindow, false),
-            (ComponentId::ControlsWindow, false),
+            (ComponentId::CpuViewWindow, true),
+            (ComponentId::ControlsWindow, true),
+            (ComponentId::InstructionViewWindow, true),
         ];
         windows.into_iter().collect()
     }
@@ -121,6 +128,10 @@ impl Gui {
             (
                 ComponentId::ControlsWindow,
                 Box::new(ControlsWindow::new()) as Box<dyn Component>,
+            ),
+            (
+                ComponentId::InstructionViewWindow,
+                Box::new(InstructionViewWindow::new()) as Box<dyn Component>,
             ),
             (
                 ComponentId::CentralPanel,
@@ -294,6 +305,7 @@ impl Component for ControlsWindow {
                     .get_mut(&ComponentId::ControlsWindow)
                     .unwrap(),
             )
+            .auto_sized()
             .show(ui, |ui| {
                 if ui.button("Step").clicked() {
                     context.commands.push(Box::new(command::Step::new()));
@@ -371,8 +383,131 @@ impl Component for Tray {
                         );
                         self.button(ui, context, ComponentId::CpuViewWindow, "CPU View".into());
                         self.button(ui, context, ComponentId::ControlsWindow, "Controls".into());
+                        self.button(
+                            ui,
+                            context,
+                            ComponentId::InstructionViewWindow,
+                            "Instructions".into(),
+                        );
                     })
                 })
+            });
+    }
+}
+impl InstructionViewWindow {
+    fn cell(ui: &mut egui::Ui, width: f32, text: RichText) {
+        ui.allocate_ui_with_layout(
+            egui::vec2(width, ui.spacing().interact_size.y),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_min_width(width); // reserve the full column width
+                ui.label(text);
+            },
+        );
+    }
+    fn display_instruction(
+        ui: &mut egui::Ui,
+        instruction: &InstructionView,
+        (address_width, bytes_width, instruction_width): (f32, f32, f32),
+    ) {
+        Self::cell(
+            ui,
+            address_width,
+            RichText::new(format!("${:04X}", instruction.address))
+                .monospace()
+                .color(Color32::from_hex("#458588").unwrap()),
+        );
+        let mut bytes = String::new();
+        for byte in &instruction.bytes {
+            let string = format!("{:02X} ", byte);
+            bytes.push_str(&string);
+        }
+        let bytes = bytes.trim_end();
+        Self::cell(
+            ui,
+            bytes_width,
+            RichText::new(bytes)
+                .monospace()
+                .color(Color32::from_hex("#689d6a").unwrap()),
+        );
+        let pink = Color32::from_hex("#d3869b").unwrap();
+        let pink2 = Color32::from_hex("#b16286").unwrap();
+        let text = match &instruction.operand {
+            Some(operand) => {
+                format!("{} {}", instruction.mnemonic, operand)
+            }
+            None => instruction.mnemonic.to_string(),
+        };
+        Self::cell(
+            ui,
+            instruction_width,
+            RichText::new(text).monospace().color(pink2),
+        );
+        ui.end_row();
+    }
+}
+impl Component for InstructionViewWindow {
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
+        egui::Window::new("Instructions")
+            .open(
+                context
+                    .windows
+                    .get_mut(&ComponentId::InstructionViewWindow)
+                    .unwrap(),
+            )
+            .auto_sized()
+            .resizable([false, true])
+            .show(ui, |ui| {
+                let address_width = 65.0;
+                let bytes_width = 100.0;
+                let instruction_width = 120.0;
+                let widths = (address_width, bytes_width, instruction_width);
+
+                egui::Grid::new("header").num_columns(3).show(ui, |ui| {
+                    Self::cell(ui, address_width, RichText::new("ADDR"));
+                    Self::cell(ui, bytes_width, RichText::new("BYTES"));
+                    Self::cell(ui, instruction_width, RichText::new("INSTRUCTION"));
+                    ui.end_row();
+                });
+                let rect = ui.min_rect();
+                let y = ui.cursor().top();
+
+                ui.painter().line_segment(
+                    [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 73, 69)),
+                );
+                egui::ScrollArea::vertical()
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        let mut index: usize = 0;
+                        if let Some(emulator) = &context.emulator
+                            && !emulator.cpu_view.instructions.is_empty()
+                        {
+                            egui::Grid::new("cpu_trace")
+                                .striped(true)
+                                .num_columns(3)
+                                .show(ui, |ui| {
+                                    for (_i, instruction) in
+                                        emulator.cpu_view.instructions.iter().enumerate().filter(
+                                            |(i, _instruction)| {
+                                                *i != emulator.cpu_view.instructions.len() - 1
+                                            },
+                                        )
+                                    {
+                                        Self::display_instruction(ui, instruction, widths);
+                                    }
+                                });
+                            ui.label("NEXT INSTRUCTION:");
+                            let next_instruction = &emulator.cpu_view.instructions
+                                [emulator.cpu_view.instructions.len() - 1];
+                            egui::Grid::new("cpu_trace")
+                                .striped(true)
+                                .num_columns(3)
+                                .show(ui, |ui| {
+                                    Self::display_instruction(ui, next_instruction, widths);
+                                });
+                        }
+                    });
             });
     }
 }

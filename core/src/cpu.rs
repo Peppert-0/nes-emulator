@@ -1418,6 +1418,8 @@ pub struct RegisterView {
     pub p: u8,
 }
 pub struct InstructionView {
+    pub address: u16,
+    pub bytes: Vec<u8>,
     pub mnemonic: String,
     pub operand: Option<String>,
 }
@@ -1432,9 +1434,8 @@ pub struct Opcode {
 impl CpuView {
     pub fn update<B: bus::Bus>(&mut self, cpu: &Cpu, bus: &B) -> () {
         self.registers = RegisterView::new(cpu);
-        let (mnemonic, operand) = cpu.disassemble_next_instruction(bus);
-        self.instructions
-            .push(InstructionView { mnemonic, operand });
+        let instruction = cpu.disassemble_next_instruction(bus);
+        self.instructions.push(instruction);
     }
 }
 impl RegisterView {
@@ -1477,29 +1478,74 @@ impl Cpu {
             instructions,
         }
     }
-    fn disassemble_next_instruction<B: bus::Bus>(&self, bus: &B) -> (String, Option<String>) {
+    fn disassemble_next_instruction<B: bus::Bus>(&self, bus: &B) -> InstructionView {
         let opcode_byte = bus.read(self.pc);
         let opcode = OPCODES[opcode_byte as usize];
         let mnemonic = format!("{:?}", opcode.instruction);
         let operand_byte = bus.read(self.pc.wrapping_add(1));
+        let operand_byte_2 = bus.read(self.pc.wrapping_add(2));
         let operand_bytes = bus.read_u16(self.pc.wrapping_add(1));
+        let mut bytes = Vec::new();
+        bytes.push(opcode_byte);
         let operand = match opcode.mode {
             AddressingMode::Implicit => None,
             AddressingMode::Accumulator => Some(format!("A")),
-            AddressingMode::Immediate => Some(format!("#${:02X}", operand_byte)),
-            AddressingMode::ZeroPage => Some(format!("${:02X}", operand_byte)),
-            AddressingMode::ZeroPageX => Some(format!("${:02X}, X", operand_byte)),
-            AddressingMode::ZeroPageY => Some(format!("${:02X}, Y", operand_byte)),
-            AddressingMode::Absolute => Some(format!("${:04X}", operand_bytes)),
-            AddressingMode::AbsoluteX => Some(format!("${:04X}, X", operand_bytes)),
-            AddressingMode::AbsoluteY => Some(format!("${:04X}, Y", operand_bytes)),
-            AddressingMode::Indirect => Some(format!("(${:04X})", operand_bytes)),
-            AddressingMode::IndirectX => Some(format!("(${:02X}, X)", operand_byte)),
-            AddressingMode::IndirectY => Some(format!("(${:02X}), Y", operand_byte)),
-            AddressingMode::Relative => Some(format!("${:02X}", operand_byte)),
+            AddressingMode::Immediate => {
+                bytes.push(operand_byte);
+                Some(format!("#${:02X}", operand_byte))
+            }
+            AddressingMode::ZeroPage => {
+                bytes.push(operand_byte);
+                Some(format!("${:02X}", operand_byte))
+            }
+            AddressingMode::ZeroPageX => {
+                bytes.push(operand_byte);
+                Some(format!("${:02X}, X", operand_byte))
+            }
+            AddressingMode::ZeroPageY => {
+                bytes.push(operand_byte);
+                Some(format!("${:02X}, Y", operand_byte))
+            }
+            AddressingMode::Absolute => {
+                bytes.push(operand_byte);
+                bytes.push(operand_byte_2);
+                Some(format!("${:04X}", operand_bytes))
+            }
+            AddressingMode::AbsoluteX => {
+                bytes.push(operand_byte);
+                bytes.push(operand_byte_2);
+                Some(format!("${:04X}, X", operand_bytes))
+            }
+            AddressingMode::AbsoluteY => {
+                bytes.push(operand_byte);
+                bytes.push(operand_byte_2);
+                Some(format!("${:04X}, Y", operand_bytes))
+            }
+            AddressingMode::Indirect => {
+                bytes.push(operand_byte);
+                bytes.push(operand_byte_2);
+                Some(format!("(${:04X})", operand_bytes))
+            }
+            AddressingMode::IndirectX => {
+                bytes.push(operand_byte);
+                Some(format!("(${:02X}, X)", operand_byte))
+            }
+            AddressingMode::IndirectY => {
+                bytes.push(operand_byte);
+                Some(format!("(${:02X}), Y", operand_byte))
+            }
+            AddressingMode::Relative => {
+                bytes.push(operand_byte);
+                Some(format!("${:02X}", operand_byte))
+            }
         };
 
-        (mnemonic, operand)
+        InstructionView {
+            address: self.pc,
+            bytes,
+            mnemonic,
+            operand,
+        }
     }
     pub fn trace<B: bus::Bus>(&self, bus: &B) -> String {
         let opcode_byte = bus.read(self.pc);
