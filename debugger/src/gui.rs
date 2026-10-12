@@ -220,7 +220,7 @@ impl Component for CpuViewWindow {
                     .unwrap(),
             )
             .resizable(false)
-            .fixed_size(Vec2::new(280.0, 0.0))
+            .fixed_size(Vec2::new(200.0, 0.0))
             .show(ui, |ui| {
                 if let Some(emulator) = &context.emulator {
                     let registers = [
@@ -247,51 +247,76 @@ impl Component for CpuViewWindow {
                         ("Flags:", format!("0x{:02X}", emulator.cpu_view.registers.p)),
                     ];
 
-                    let row_width = ui.available_width();
-                    let row_height = 20.0;
-                    let name_width = 120.0;
+                    let flags = [
+                        ("Carry:", format!("{}", emulator.cpu_view.flags.carry)),
+                        ("Zero:", format!("{}", emulator.cpu_view.flags.carry)),
+                        (
+                            "Interrupt\nDisable:",
+                            format!("{}", emulator.cpu_view.flags.interrupt_disable),
+                        ),
+                        ("Decimal:", format!("{}", emulator.cpu_view.flags.decimal)),
+                        ("Overflow:", format!("{}", emulator.cpu_view.flags.overflow)),
+                        ("Negative:", format!("{}", emulator.cpu_view.flags.negative)),
+                    ];
 
-                    for (i, (name, value)) in registers.iter().enumerate() {
-                        let alternate = i % 2 == 1;
-
-                        let (row_rect, _) = ui.allocate_exact_size(
-                            egui::vec2(row_width, row_height),
-                            egui::Sense::hover(),
-                        );
-
-                        let white = Color32::from_hex("#ebdbb2").unwrap();
-                        let grey = Color32::from_hex("#292929").unwrap();
-                        let black = Color32::from_hex("#3c3836").unwrap();
-
-                        if alternate {
-                            ui.painter().rect_filled(row_rect, 0.0, grey);
-                        }
-
-                        let text_color = if alternate {
-                            ui.visuals().text_color()
-                        } else {
-                            ui.visuals().text_color()
-                        };
-
-                        // Register name
-                        ui.put(
-                            egui::Rect::from_min_size(
-                                row_rect.min + egui::vec2(4.0, 0.0),
-                                egui::vec2(name_width, row_height),
-                            ),
-                            egui::Label::new(egui::RichText::new(*name).color(text_color)),
-                        );
-
-                        // Register value
-                        ui.put(
-                            egui::Rect::from_min_size(
-                                egui::pos2(row_rect.max.x - 4.0 - 60.0, row_rect.min.y),
-                                egui::vec2(60.0, row_height),
-                            ),
-                            egui::Label::new(egui::RichText::new(value).color(text_color))
-                                .halign(egui::Align::RIGHT),
-                        );
-                    }
+                    egui::Grid::new("rows")
+                        .with_row_color(|row, _style| {
+                            if row % 2 == 0 {
+                                Some(Color32::from_hex("#292929").unwrap())
+                            } else {
+                                None
+                            }
+                        })
+                        .num_columns(2)
+                        .spacing([0.0, 5.0])
+                        .show(ui, |ui| {
+                            for (i, (name, value)) in registers.iter().enumerate() {
+                                if i == registers.len() - 1 {
+                                    ui.collapsing(*name, |ui| {
+                                        {
+                                            ui.add_space(5.0);
+                                            egui::Grid::new("flags").with_row_color(|row, _| {
+                                                if row % 2 == 0 {
+                                                    Some(Color32::from_hex("#242424").unwrap())
+                                                } else {
+                                                    None
+                                                }
+                                            })
+                                        }
+                                        .num_columns(2)
+                                        .spacing([0.0, 5.0])
+                                        .show(ui, |ui| {
+                                            for (name, value) in &flags {
+                                                ui.label(*name);
+                                                ui.with_layout(
+                                                    Layout::right_to_left(Align::Center),
+                                                    |ui| {
+                                                        ui.set_min_width(ui.available_width());
+                                                        ui.label(value);
+                                                    },
+                                                );
+                                                ui.end_row();
+                                            }
+                                        })
+                                    });
+                                    ui.vertical(|ui| {
+                                        ui.add_space(2.5);
+                                        ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
+                                            ui.set_min_width(ui.available_width());
+                                            ui.label(value);
+                                        });
+                                    });
+                                    ui.end_row();
+                                } else {
+                                    ui.label(*name);
+                                    ui.with_layout(Layout::right_to_left(Align::RIGHT), |ui| {
+                                        ui.set_min_width(ui.available_width());
+                                        ui.label(value);
+                                    });
+                                    ui.end_row();
+                                }
+                            }
+                        });
                 }
             });
     }
@@ -307,15 +332,17 @@ impl Component for ControlsWindow {
             )
             .auto_sized()
             .show(ui, |ui| {
-                if ui.button("Step").clicked() {
-                    context.commands.push(Box::new(command::Step::new()));
-                }
-                if ui.button("Reset").clicked() {
-                    context.commands.push(Box::new(command::Reset::new()));
-                }
-                if ui.button("Run").clicked() {
-                    toggle(&mut context.emulator_running);
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("Step").clicked() {
+                        context.commands.push(Box::new(command::Step::new()));
+                    }
+                    if ui.button("Reset").clicked() {
+                        context.commands.push(Box::new(command::Reset::new()));
+                    }
+                    if ui.button("Run").clicked() {
+                        toggle(&mut context.emulator_running);
+                    }
+                })
             });
     }
 }

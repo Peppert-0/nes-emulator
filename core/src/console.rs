@@ -6,7 +6,7 @@ use crate::Shared;
 use crate::bus::{CpuBus, PpuBus};
 use crate::cartridge::{Cartridge, CartridgeView, NesParseError};
 use crate::cpu::{Cpu, CpuView};
-use crate::ppu::{Ppu, PpuRegisters};
+use crate::ppu::{Ppu, PpuRegisters, PpuView};
 
 pub struct Console {
     pub cpu: Cpu,
@@ -18,6 +18,7 @@ pub struct Console {
 pub struct ConsoleView {
     pub cpu_view: CpuView,
     pub cartridge_view: CartridgeView,
+    pub ppu_view: PpuView,
 }
 
 impl Console {
@@ -42,14 +43,17 @@ impl ConsoleView {
     pub fn new(console: &Console) -> Self {
         let cpu_view = console.cpu.view();
         let cartridge_view = console.cartridge.borrow().view();
+        let ppu_view = console.ppu.view();
 
         Self {
             cpu_view,
             cartridge_view,
+            ppu_view,
         }
     }
     pub fn update(&mut self, console: &Console) {
         self.cpu_view.update(&console.cpu, &console.cpu_bus);
         self.cartridge_view = console.cartridge.borrow().view();
+        self.ppu_view = console.ppu.view();
     }
 }

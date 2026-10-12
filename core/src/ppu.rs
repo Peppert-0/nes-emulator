@@ -18,6 +18,20 @@ pub struct Ppu {
     pattern_shift_low: u16,
     pattern_shift_high: u16,
 }
+pub struct PpuView {
+    v: u16,
+    t: u16,
+    x: u8,
+    w: bool,
+    mmio: MmioView,
+    dot: u16,
+    scanline: u16,
+    oam: [u8; 256],
+    attribute_shift_low: u8,
+    attribute_shift_high: u8,
+    pattern_shift_low: u16,
+    pattern_shift_high: u16,
+}
 
 pub struct PpuRegisters {
     ppuctrl: u8,
@@ -28,6 +42,31 @@ pub struct PpuRegisters {
     ppuscroll: u8,
     ppuaddr: u8,
     ppudata: u8,
+}
+pub struct MmioView {
+    ppuctrl: u8,
+    ppumask: u8,
+    ppustatus: u8,
+    oamaddr: u8,
+    oamdata: u8,
+    ppuscroll: u8,
+    ppuaddr: u8,
+    ppudata: u8,
+}
+impl MmioView {
+    pub fn new(registers: &Shared<PpuRegisters>) -> Self {
+        let registers_ref = registers.borrow();
+        Self {
+            ppuctrl: registers_ref.ppuctrl,
+            ppumask: registers_ref.ppumask,
+            ppustatus: registers_ref.ppustatus,
+            oamaddr: registers_ref.oamaddr,
+            oamdata: registers_ref.oamdata,
+            ppuscroll: registers_ref.ppuscroll,
+            ppuaddr: registers_ref.ppuaddr,
+            ppudata: registers_ref.ppudata,
+        }
+    }
 }
 
 const CTRL_NMI: u8 = 1 << 7;
@@ -72,6 +111,23 @@ impl Ppu {
             if self.scanline == 262 {
                 self.scanline = 0;
             }
+        }
+    }
+    pub fn view(&self) -> PpuView {
+        let mmio_view = MmioView::new(&self.mmio);
+        PpuView {
+            v: self.v,
+            t: self.t,
+            x: self.x,
+            w: self.w,
+            mmio: mmio_view,
+            dot: self.dot,
+            scanline: self.scanline,
+            oam: self.oam,
+            attribute_shift_low: self.attribute_shift_low,
+            attribute_shift_high: self.attribute_shift_high,
+            pattern_shift_low: self.pattern_shift_low,
+            pattern_shift_high: self.pattern_shift_high,
         }
     }
 

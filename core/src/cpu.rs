@@ -1407,6 +1407,7 @@ pub struct Cpu {
 }
 pub struct CpuView {
     pub registers: RegisterView,
+    pub flags: FlagView,
     pub instructions: Vec<InstructionView>,
 }
 pub struct RegisterView {
@@ -1416,6 +1417,14 @@ pub struct RegisterView {
     pub pc: u16,
     pub sp: u8,
     pub p: u8,
+}
+pub struct FlagView {
+    pub negative: bool,
+    pub overflow: bool,
+    pub decimal: bool,
+    pub interrupt_disable: bool,
+    pub zero: bool,
+    pub carry: bool,
 }
 pub struct InstructionView {
     pub address: u16,
@@ -1434,6 +1443,7 @@ pub struct Opcode {
 impl CpuView {
     pub fn update<B: bus::Bus>(&mut self, cpu: &Cpu, bus: &B) -> () {
         self.registers = RegisterView::new(cpu);
+        self.flags = FlagView::new(cpu);
         let instruction = cpu.disassemble_next_instruction(bus);
         self.instructions.push(instruction);
     }
@@ -1450,6 +1460,18 @@ impl RegisterView {
         }
     }
 }
+impl FlagView {
+    fn new(cpu: &Cpu) -> Self {
+        Self {
+            negative: cpu.negative(),
+            overflow: cpu.overflow(),
+            decimal: cpu.decimal(),
+            interrupt_disable: cpu.interrupt(),
+            zero: cpu.zero(),
+            carry: cpu.carry(),
+        }
+    }
+}
 impl Cpu {
     pub fn new() -> Self {
         Cpu {
@@ -1463,18 +1485,13 @@ impl Cpu {
     }
 
     pub fn view(&self) -> CpuView {
-        let registers = RegisterView {
-            a: self.a,
-            x: self.x,
-            y: self.y,
-            pc: self.pc,
-            sp: self.sp,
-            p: self.p,
-        };
+        let registers = RegisterView::new(&self);
+        let flags = FlagView::new(&self);
         let instructions = Vec::new();
 
         CpuView {
             registers,
+            flags,
             instructions,
         }
     }
