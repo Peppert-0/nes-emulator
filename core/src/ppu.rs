@@ -19,18 +19,18 @@ pub struct Ppu {
     pattern_shift_high: u16,
 }
 pub struct PpuView {
-    v: u16,
-    t: u16,
-    x: u8,
-    w: bool,
-    mmio: MmioView,
-    dot: u16,
-    scanline: u16,
-    oam: [u8; 256],
-    attribute_shift_low: u8,
-    attribute_shift_high: u8,
-    pattern_shift_low: u16,
-    pattern_shift_high: u16,
+    pub v: u16,
+    pub t: u16,
+    pub x: u8,
+    pub w: bool,
+    pub mmio: MmioView,
+    pub dot: u16,
+    pub scanline: u16,
+    pub oam: [u8; 256],
+    pub attribute_shift_low: u8,
+    pub attribute_shift_high: u8,
+    pub pattern_shift_low: u16,
+    pub pattern_shift_high: u16,
 }
 
 pub struct PpuRegisters {
@@ -44,14 +44,14 @@ pub struct PpuRegisters {
     ppudata: u8,
 }
 pub struct MmioView {
-    ppuctrl: u8,
-    ppumask: u8,
-    ppustatus: u8,
-    oamaddr: u8,
-    oamdata: u8,
-    ppuscroll: u8,
-    ppuaddr: u8,
-    ppudata: u8,
+    pub ppuctrl: u8,
+    pub ppumask: u8,
+    pub ppustatus: u8,
+    pub oamaddr: u8,
+    pub oamdata: u8,
+    pub ppuscroll: u8,
+    pub ppuaddr: u8,
+    pub ppudata: u8,
 }
 impl MmioView {
     pub fn new(registers: &Shared<PpuRegisters>) -> Self {
@@ -266,6 +266,7 @@ impl PpuRegisters {
         }
     }
     fn set_status_vblank(&mut self, value: bool) {
+        println!("Vblank set");
         if value {
             self.ppustatus |= STATUS_VBLANK
         } else {

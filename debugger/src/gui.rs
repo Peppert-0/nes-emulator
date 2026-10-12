@@ -3,11 +3,16 @@ use core::{
     console::ConsoleView,
     cpu::InstructionView,
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    fmt::format,
+    hash::Hash,
+};
 
 use builder::Builder;
 use egui::{
-    Align, Color32, Frame, Layout, Margin, RichText, TextureId, Vec2, Widget, load::SizedTexture,
+    Align, AsIdSalt, Color32, Frame, IdSalt, Layout, Margin, RichText, TextureId, Vec2, Widget,
+    load::SizedTexture,
 };
 
 pub trait Component {
@@ -22,6 +27,7 @@ pub struct Resources {
 pub enum ComponentId {
     PatternTables,
     CpuViewWindow,
+    PpuViewWindow,
     ControlsWindow,
     InstructionViewWindow,
     CentralPanel,
@@ -38,6 +44,8 @@ pub enum TextureName {
 struct PatternTables {}
 #[derive(Builder)]
 struct CpuViewWindow {}
+#[derive(Builder)]
+struct PpuViewWindow {}
 #[derive(Builder)]
 pub struct ControlsWindow {}
 #[derive(Builder)]
@@ -81,6 +89,7 @@ impl GuiContext {
         let windows = [
             (ComponentId::PatternTables, false),
             (ComponentId::CpuViewWindow, true),
+            (ComponentId::PpuViewWindow, true),
             (ComponentId::ControlsWindow, true),
             (ComponentId::InstructionViewWindow, true),
         ];
@@ -124,6 +133,10 @@ impl Gui {
             (
                 ComponentId::CpuViewWindow,
                 Box::new(CpuViewWindow::new()) as Box<dyn Component>,
+            ),
+            (
+                ComponentId::PpuViewWindow,
+                Box::new(PpuViewWindow::new()) as Box<dyn Component>,
             ),
             (
                 ComponentId::ControlsWindow,
@@ -211,7 +224,7 @@ impl Component for PatternTables {
     }
 }
 impl Component for CpuViewWindow {
-    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) {
         egui::Window::new("CPU View")
             .open(
                 context
@@ -225,101 +238,116 @@ impl Component for CpuViewWindow {
                 if let Some(emulator) = &context.emulator {
                     let registers = [
                         (
-                            "Program Counter:",
+                            "Program Counter:".to_string(),
                             format!("0x{:04X}", emulator.cpu_view.registers.pc),
                         ),
                         (
-                            "Stack Pointer:",
+                            "Stack Pointer:".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.sp),
                         ),
                         (
-                            "Accumulator:",
+                            "Accumulator:".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.a),
                         ),
                         (
-                            "X Register:",
+                            "X Register:".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.x),
                         ),
                         (
-                            "Y Register:",
+                            "Y Register:".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.y),
                         ),
-                        ("Flags:", format!("0x{:02X}", emulator.cpu_view.registers.p)),
                     ];
 
                     let flags = [
-                        ("Carry:", format!("{}", emulator.cpu_view.flags.carry)),
-                        ("Zero:", format!("{}", emulator.cpu_view.flags.carry)),
                         (
-                            "Interrupt\nDisable:",
+                            "Flags:".to_string(),
+                            format!("0x{:02X}", emulator.cpu_view.registers.p),
+                        ),
+                        (
+                            "Carry:".to_string(),
+                            format!("{}", emulator.cpu_view.flags.carry),
+                        ),
+                        (
+                            "Zero:".to_string(),
+                            format!("{}", emulator.cpu_view.flags.carry),
+                        ),
+                        (
+                            "Interrupt\nDisable:".to_string(),
                             format!("{}", emulator.cpu_view.flags.interrupt_disable),
                         ),
-                        ("Decimal:", format!("{}", emulator.cpu_view.flags.decimal)),
-                        ("Overflow:", format!("{}", emulator.cpu_view.flags.overflow)),
-                        ("Negative:", format!("{}", emulator.cpu_view.flags.negative)),
+                        (
+                            "Decimal:".to_string(),
+                            format!("{}", emulator.cpu_view.flags.decimal),
+                        ),
+                        (
+                            "Overflow:".to_string(),
+                            format!("{}", emulator.cpu_view.flags.overflow),
+                        ),
+                        (
+                            "Negative:".to_string(),
+                            format!("{}", emulator.cpu_view.flags.negative),
+                        ),
                     ];
 
-                    egui::Grid::new("rows")
-                        .with_row_color(|row, _style| {
-                            if row % 2 == 0 {
-                                Some(Color32::from_hex("#292929").unwrap())
-                            } else {
-                                None
-                            }
-                        })
-                        .num_columns(2)
-                        .spacing([0.0, 5.0])
-                        .show(ui, |ui| {
-                            for (i, (name, value)) in registers.iter().enumerate() {
-                                if i == registers.len() - 1 {
-                                    ui.collapsing(*name, |ui| {
-                                        {
-                                            ui.add_space(5.0);
-                                            egui::Grid::new("flags").with_row_color(|row, _| {
-                                                if row % 2 == 0 {
-                                                    Some(Color32::from_hex("#242424").unwrap())
-                                                } else {
-                                                    None
-                                                }
-                                            })
-                                        }
-                                        .num_columns(2)
-                                        .spacing([0.0, 5.0])
-                                        .show(ui, |ui| {
-                                            for (name, value) in &flags {
-                                                ui.label(*name);
-                                                ui.with_layout(
-                                                    Layout::right_to_left(Align::Center),
-                                                    |ui| {
-                                                        ui.set_min_width(ui.available_width());
-                                                        ui.label(value);
-                                                    },
-                                                );
-                                                ui.end_row();
-                                            }
-                                        })
-                                    });
-                                    ui.vertical(|ui| {
-                                        ui.add_space(2.5);
-                                        ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
-                                            ui.set_min_width(ui.available_width());
-                                            ui.label(value);
-                                        });
-                                    });
-                                    ui.end_row();
-                                } else {
-                                    ui.label(*name);
-                                    ui.with_layout(Layout::right_to_left(Align::RIGHT), |ui| {
-                                        ui.set_min_width(ui.available_width());
-                                        ui.label(value);
-                                    });
-                                    ui.end_row();
-                                }
-                            }
-                        });
+                    key_value_grid(ui, "registers", &registers, false);
+                    ui.add_space(2.5);
+                    collapsible_key_value_grid(ui, "flags", &flags, true);
                 }
             });
     }
+}
+fn key_value_grid(
+    ui: &mut egui::Ui,
+    id: impl AsIdSalt,
+    data: &[(String, String)],
+    alternate_stripe_order: bool,
+) {
+    let row_index = if alternate_stripe_order { 1 } else { 0 };
+    egui::Grid::new(id)
+        .with_row_color(move |row, _style| {
+            if row % 2 == row_index {
+                Some(Color32::from_hex("#292929").unwrap())
+            } else {
+                None
+            }
+        })
+        .num_columns(2)
+        .spacing([0.0, 5.0])
+        .show(ui, |ui| {
+            for (name, value) in data {
+                ui.label(name);
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.label(value);
+                });
+                ui.end_row();
+            }
+        });
+}
+fn collapsible_key_value_grid(
+    ui: &mut egui::Ui,
+    id: impl AsIdSalt,
+    data: &[(String, String)],
+    alternate_stripe_order: bool,
+) {
+    let Some((first, rest)) = data.split_first() else {
+        return;
+    };
+    let id = ui.make_persistent_id(id);
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+        .show_header(ui, |ui| {
+            key_value_grid(
+                ui,
+                "header",
+                std::slice::from_ref(first),
+                alternate_stripe_order,
+            );
+        })
+        .body(|ui| {
+            ui.add_space(5.0);
+            key_value_grid(ui, "body", rest, !alternate_stripe_order);
+        });
 }
 impl Component for ControlsWindow {
     fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
@@ -409,6 +437,7 @@ impl Component for Tray {
                             "Pattern Tables".into(),
                         );
                         self.button(ui, context, ComponentId::CpuViewWindow, "CPU View".into());
+                        self.button(ui, context, ComponentId::PpuViewWindow, "PPU View".into());
                         self.button(ui, context, ComponentId::ControlsWindow, "Controls".into());
                         self.button(
                             ui,
@@ -535,6 +564,88 @@ impl Component for InstructionViewWindow {
                                 });
                         }
                     });
+            });
+    }
+}
+impl Component for PpuViewWindow {
+    fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
+        egui::Window::new("PPU View")
+            .open(
+                context
+                    .windows
+                    .get_mut(&ComponentId::PpuViewWindow)
+                    .unwrap(),
+            )
+            .fixed_size([200.0, 0.0])
+            .resizable(false)
+            .show(ui, |ui| {
+                if let Some(emulator) = &context.emulator {
+                    let frame = [
+                        (
+                            "Scanline".to_string(),
+                            format!("{}", emulator.ppu_view.scanline),
+                        ),
+                        ("Dot".to_string(), format!("{}", emulator.ppu_view.dot)),
+                    ];
+                    let internal_registers = [
+                        (
+                            "Scroll Position:".to_string(),
+                            format!("0x{:04X}", emulator.ppu_view.v),
+                        ),
+                        (
+                            "Course X:".to_string(),
+                            format!("0x{:04X}", emulator.ppu_view.t),
+                        ),
+                        (
+                            "Fine X:".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.x),
+                        ),
+                        (
+                            "Write Toggle:".to_string(),
+                            format!("{}", emulator.ppu_view.w),
+                        ),
+                    ];
+                    let mmio_registers = [
+                        ("MMIO Registers:".to_string(), "".to_string()),
+                        (
+                            "PPUCTRL ($2000)".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.mmio.ppuctrl),
+                        ),
+                        (
+                            "PPUMASK ($2001)".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.mmio.ppumask),
+                        ),
+                        (
+                            "PPUSTATUS ($2002)".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.mmio.ppustatus),
+                        ),
+                        (
+                            "OAMADDR ($2003)".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.mmio.oamaddr),
+                        ),
+                        (
+                            "OAMDATA ($2004)".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.mmio.oamdata),
+                        ),
+                        (
+                            "PPUSCROLL ($2005)".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.mmio.ppuscroll),
+                        ),
+                        (
+                            "PPUADDR ($2006)".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.mmio.ppuaddr),
+                        ),
+                        (
+                            "PPUDATA ($2007)".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.mmio.ppudata),
+                        ),
+                    ];
+                    key_value_grid(ui, "internal_registers", &internal_registers, false);
+                    ui.add_space(2.5);
+                    collapsible_key_value_grid(ui, "mmio_registers", &mmio_registers, false);
+                    ui.add_space(2.5);
+                    key_value_grid(ui, "frame", &frame, true);
+                }
             });
     }
 }
