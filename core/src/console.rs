@@ -40,7 +40,7 @@ impl Console {
     }
 }
 impl ConsoleView {
-    pub fn new(console: &Console) -> Self {
+    pub fn new(console: &mut Console) -> Self {
         let cpu_view = console.cpu.view();
         let cartridge_view = console.cartridge.borrow().view();
         let ppu_view = console.ppu.view();
@@ -51,8 +51,8 @@ impl ConsoleView {
             ppu_view,
         }
     }
-    pub fn update(&mut self, console: &Console) {
-        self.cpu_view.update(&console.cpu, &console.cpu_bus);
+    pub fn update(&mut self, console: &mut Console) {
+        self.cpu_view.update(&mut console.cpu, &console.cpu_bus);
         self.cartridge_view = console.cartridge.borrow().view();
         self.ppu_view = console.ppu.view();
     }

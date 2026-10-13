@@ -44,7 +44,7 @@ impl Bus for CpuBus {
         let ppu_registers = self.ppu_registers.borrow();
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize],
-            0x2000..=0x3FFF => ppu_registers.cpu_read(address & 0x1FF7),
+            0x2000..=0x3FFF => ppu_registers.cpu_read(0x2000 + (address & 0x0007)),
             0x4020..=0xFFFF => cartridge.cpu_read(address),
             _ => 0,
         }
@@ -54,7 +54,7 @@ impl Bus for CpuBus {
         let mut ppu_registers = self.ppu_registers.borrow_mut();
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize] = value,
-            0x2000..=0x3FFF => ppu_registers.cpu_write(address & 0x1FF7, value),
+            0x2000..=0x3FFF => ppu_registers.cpu_write(0x2000 + (address & 0x0007), value),
             0x4020..=0xFFFF => cartridge.cpu_write(address, value),
             _ => {}
         }

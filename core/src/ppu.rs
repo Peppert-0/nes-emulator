@@ -44,22 +44,101 @@ pub struct PpuRegisters {
     ppudata: u8,
 }
 pub struct MmioView {
-    pub ppuctrl: u8,
+    pub ppuctrl: PpuCtrlView,
     pub ppumask: u8,
-    pub ppustatus: u8,
+    pub ppustatus: PpuStatusView,
     pub oamaddr: u8,
     pub oamdata: u8,
     pub ppuscroll: u8,
     pub ppuaddr: u8,
     pub ppudata: u8,
 }
+pub struct PpuCtrlView {
+    pub value: u8,
+    pub base_nametable_address: String,
+    pub vram_address_increment: String,
+    pub sprite_pattern_table_address: String,
+    pub background_pattern_table_address: String,
+    pub sprite_size: String,
+    pub vblank_nmi: String,
+}
+impl PpuCtrlView {
+    fn new(value: u8) -> Self {
+        let base_nametable_address = match value & 3 {
+            0 => "0x2000",
+            1 => "0x2400",
+            2 => "0x2800",
+            3 => "0x2C00",
+            _ => unreachable!(),
+        }
+        .to_string();
+        let vram_address_increment = match (value >> 2) & 1 {
+            0 => "1 (across)",
+            1 => "32 (down)",
+            _ => unreachable!(),
+        }
+        .to_string();
+        let sprite_pattern_table_address = match (value >> 3) & 1 {
+            0 => "0x0000",
+            1 => "0x1000",
+            _ => unreachable!(),
+        }
+        .to_string();
+        let background_pattern_table_address = match (value >> 4) & 1 {
+            0 => "0x0000",
+            1 => "0x1000",
+            _ => unreachable!(),
+        }
+        .to_string();
+        let sprite_size = match (value >> 6) & 1 {
+            0 => "8x8 pixels",
+            1 => "8x16 pixels",
+            _ => unreachable!(),
+        }
+        .to_string();
+        let vblank_nmi = match (value >> 7) & 1 {
+            0 => "off",
+            1 => "on",
+            _ => unreachable!(),
+        }
+        .to_string();
+        Self {
+            value,
+            base_nametable_address,
+            vram_address_increment,
+            sprite_pattern_table_address,
+            background_pattern_table_address,
+            sprite_size,
+            vblank_nmi,
+        }
+    }
+}
+pub struct PpuStatusView {
+    pub value: u8,
+    pub sprite_overflow: bool,
+    pub sprite_0_hit: bool,
+    pub vblank: bool,
+}
+impl PpuStatusView {
+    fn new(value: u8) -> Self {
+        let sprite_overflow = (value >> 5) & 1 == 1;
+        let sprite_0_hit = (value >> 6) & 1 == 1;
+        let vblank = (value >> 7) & 1 == 1;
+        Self {
+            value,
+            sprite_overflow,
+            sprite_0_hit,
+            vblank,
+        }
+    }
+}
 impl MmioView {
     pub fn new(registers: &Shared<PpuRegisters>) -> Self {
         let registers_ref = registers.borrow();
         Self {
-            ppuctrl: registers_ref.ppuctrl,
+            ppuctrl: PpuCtrlView::new(registers_ref.ppuctrl),
             ppumask: registers_ref.ppumask,
-            ppustatus: registers_ref.ppustatus,
+            ppustatus: PpuStatusView::new(registers_ref.ppustatus),
             oamaddr: registers_ref.oamaddr,
             oamdata: registers_ref.oamdata,
             ppuscroll: registers_ref.ppuscroll,
@@ -266,7 +345,6 @@ impl PpuRegisters {
         }
     }
     fn set_status_vblank(&mut self, value: bool) {
-        println!("Vblank set");
         if value {
             self.ppustatus |= STATUS_VBLANK
         } else {

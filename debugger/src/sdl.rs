@@ -347,8 +347,8 @@ impl Context {
                         let mut file = File::open(path)?;
                         let emulator = Console::new(&mut file);
                         match emulator {
-                            Ok(emulator) => {
-                                let emulator_view = ConsoleView::new(&emulator);
+                            Ok(mut emulator) => {
+                                let emulator_view = ConsoleView::new(&mut emulator);
                                 self.bitmaps.push((
                                     TextureName::PatternTable1,
                                     Bitmap::from_pattern_table(
@@ -463,7 +463,7 @@ impl Context {
                 x, y, direction, ..
             } => {
                 return Ok(Some(egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
+                    unit: egui::MouseWheelUnit::Line,
                     delta: egui::Vec2 { x, y },
                     phase: egui::TouchPhase::Move,
                     modifiers: egui::Modifiers::NONE,

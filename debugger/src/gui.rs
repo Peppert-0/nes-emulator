@@ -47,7 +47,10 @@ struct CpuViewWindow {}
 #[derive(Builder)]
 struct PpuViewWindow {}
 #[derive(Builder)]
-pub struct ControlsWindow {}
+pub struct ControlsWindow {
+    #[builder(default = 1)]
+    step_times: u32,
+}
 #[derive(Builder)]
 pub struct InstructionViewWindow {}
 #[derive(Builder)]
@@ -236,118 +239,126 @@ impl Component for CpuViewWindow {
             .fixed_size(Vec2::new(200.0, 0.0))
             .show(ui, |ui| {
                 if let Some(emulator) = &context.emulator {
-                    let registers = [
-                        (
-                            "Program Counter:".to_string(),
-                            format!("0x{:04X}", emulator.cpu_view.registers.pc),
-                        ),
-                        (
-                            "Stack Pointer:".to_string(),
-                            format!("0x{:02X}", emulator.cpu_view.registers.sp),
-                        ),
-                        (
-                            "Accumulator:".to_string(),
-                            format!("0x{:02X}", emulator.cpu_view.registers.a),
-                        ),
-                        (
-                            "X Register:".to_string(),
-                            format!("0x{:02X}", emulator.cpu_view.registers.x),
-                        ),
-                        (
-                            "Y Register:".to_string(),
-                            format!("0x{:02X}", emulator.cpu_view.registers.y),
-                        ),
-                    ];
-
-                    let flags = [
-                        (
+                    let flags = Vec::from([
+                        RowType::Value((
                             "Flags:".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.p),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "Carry:".to_string(),
                             format!("{}", emulator.cpu_view.flags.carry),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "Zero:".to_string(),
                             format!("{}", emulator.cpu_view.flags.carry),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "Interrupt\nDisable:".to_string(),
                             format!("{}", emulator.cpu_view.flags.interrupt_disable),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "Decimal:".to_string(),
                             format!("{}", emulator.cpu_view.flags.decimal),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "Overflow:".to_string(),
                             format!("{}", emulator.cpu_view.flags.overflow),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "Negative:".to_string(),
                             format!("{}", emulator.cpu_view.flags.negative),
-                        ),
+                        )),
+                    ]);
+
+                    let registers = [
+                        RowType::Value((
+                            "Program Counter:".to_string(),
+                            format!("0x{:04X}", emulator.cpu_view.registers.pc),
+                        )),
+                        RowType::Value((
+                            "Stack Pointer:".to_string(),
+                            format!("0x{:02X}", emulator.cpu_view.registers.sp),
+                        )),
+                        RowType::Value((
+                            "Accumulator:".to_string(),
+                            format!("0x{:02X}", emulator.cpu_view.registers.a),
+                        )),
+                        RowType::Value((
+                            "X Register:".to_string(),
+                            format!("0x{:02X}", emulator.cpu_view.registers.x),
+                        )),
+                        RowType::Value((
+                            "Y Register:".to_string(),
+                            format!("0x{:02X}", emulator.cpu_view.registers.y),
+                        )),
+                        RowType::Collapsible(flags),
                     ];
 
-                    key_value_grid(ui, "registers", &registers, false);
-                    ui.add_space(2.5);
-                    collapsible_key_value_grid(ui, "flags", &flags, true);
+                    key_value_grid(ui, &registers, false);
                 }
             });
     }
 }
-fn key_value_grid(
-    ui: &mut egui::Ui,
-    id: impl AsIdSalt,
-    data: &[(String, String)],
-    alternate_stripe_order: bool,
-) {
-    let row_index = if alternate_stripe_order { 1 } else { 0 };
-    egui::Grid::new(id)
-        .with_row_color(move |row, _style| {
-            if row % 2 == row_index {
-                Some(Color32::from_hex("#292929").unwrap())
-            } else {
-                None
-            }
-        })
-        .num_columns(2)
-        .spacing([0.0, 5.0])
-        .show(ui, |ui| {
-            for (name, value) in data {
-                ui.label(name);
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.label(value);
-                });
-                ui.end_row();
-            }
-        });
+enum RowType {
+    Value((String, String)),
+    Collapsible(Vec<RowType>),
 }
-fn collapsible_key_value_grid(
-    ui: &mut egui::Ui,
-    id: impl AsIdSalt,
-    data: &[(String, String)],
-    alternate_stripe_order: bool,
-) {
+fn key_value_grid(ui: &mut egui::Ui, data: &[RowType], alternate_stripe_order: bool) {
+    let row_index = if alternate_stripe_order { 1 } else { 0 };
+    let sections = data.chunk_by(|a, b| std::mem::discriminant(a) == std::mem::discriminant(b));
+    for section in sections {
+        match &section[0] {
+            RowType::Value((name, value)) => {
+                egui::Grid::new(name)
+                    .with_row_color(move |row, _style| {
+                        if row % 2 == row_index {
+                            Some(Color32::from_hex("#292929").unwrap())
+                        } else {
+                            None
+                        }
+                    })
+                    .num_columns(2)
+                    .spacing([0.0, 5.0])
+                    .show(ui, |ui| {
+                        for row in section {
+                            match row {
+                                RowType::Value((name, value)) => {
+                                    ui.label(name);
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        ui.set_min_width(ui.available_width());
+                                        ui.label(value);
+                                    });
+                                    ui.end_row();
+                                }
+                                RowType::Collapsible(sub_data) => {}
+                            }
+                        }
+                    });
+            }
+            RowType::Collapsible(sub_data) => {
+                collapsible_key_value_grid(ui, sub_data, false);
+            }
+        };
+    }
+}
+fn collapsible_key_value_grid(ui: &mut egui::Ui, data: &[RowType], alternate_stripe_order: bool) {
     let Some((first, rest)) = data.split_first() else {
         return;
     };
-    let id = ui.make_persistent_id(id);
-    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-        .show_header(ui, |ui| {
-            key_value_grid(
-                ui,
-                "header",
-                std::slice::from_ref(first),
-                alternate_stripe_order,
-            );
-        })
-        .body(|ui| {
-            ui.add_space(5.0);
-            key_value_grid(ui, "body", rest, !alternate_stripe_order);
-        });
+    match first {
+        RowType::Value((name, value)) => {
+            let id = egui::Id::new(name);
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+                .show_header(ui, |ui| {
+                    key_value_grid(ui, std::slice::from_ref(first), alternate_stripe_order);
+                })
+                .body(|ui| {
+                    ui.add_space(5.0);
+                    key_value_grid(ui, rest, !alternate_stripe_order);
+                });
+        }
+        RowType::Collapsible((sub_data)) => {}
+    }
 }
 impl Component for ControlsWindow {
     fn display(&mut self, ui: &mut egui::Ui, context: &mut GuiContext) -> () {
@@ -362,8 +373,13 @@ impl Component for ControlsWindow {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button("Step").clicked() {
-                        context.commands.push(Box::new(command::Step::new()));
+                        context
+                            .commands
+                            .push(Box::new(command::Step::new().times(self.step_times)));
                     }
+                    ui.add(
+                        egui::Slider::new(&mut self.step_times, 1..=5_000_000).logarithmic(true),
+                    );
                     if ui.button("Reset").clicked() {
                         context.commands.push(Box::new(command::Reset::new()));
                     }
@@ -532,38 +548,38 @@ impl Component for InstructionViewWindow {
                     [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
                     egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 73, 69)),
                 );
-                egui::ScrollArea::vertical()
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        let mut index: usize = 0;
-                        if let Some(emulator) = &context.emulator
-                            && !emulator.cpu_view.instructions.is_empty()
-                        {
-                            egui::Grid::new("cpu_trace")
-                                .striped(true)
-                                .num_columns(3)
-                                .show(ui, |ui| {
-                                    for (_i, instruction) in
-                                        emulator.cpu_view.instructions.iter().enumerate().filter(
-                                            |(i, _instruction)| {
-                                                *i != emulator.cpu_view.instructions.len() - 1
-                                            },
-                                        )
-                                    {
-                                        Self::display_instruction(ui, instruction, widths);
-                                    }
-                                });
-                            ui.label("NEXT INSTRUCTION:");
-                            let next_instruction = &emulator.cpu_view.instructions
-                                [emulator.cpu_view.instructions.len() - 1];
-                            egui::Grid::new("cpu_trace")
-                                .striped(true)
-                                .num_columns(3)
-                                .show(ui, |ui| {
-                                    Self::display_instruction(ui, next_instruction, widths);
-                                });
-                        }
-                    });
+                if let Some(emulator) = &context.emulator
+                    && !emulator.cpu_view.instructions.is_empty()
+                {
+                    egui::ScrollArea::vertical()
+                        .stick_to_bottom(true)
+                        .show_rows(
+                            ui,
+                            ui.text_style_height(&egui::TextStyle::Body),
+                            emulator.cpu_view.instructions.len() - 1,
+                            |ui, row_range| {
+                                egui::Grid::new("cpu_trace")
+                                    .striped(true)
+                                    .num_columns(3)
+                                    .show(ui, |ui| {
+                                        for instruction in
+                                            emulator.cpu_view.instructions.range(row_range)
+                                        {
+                                            Self::display_instruction(ui, instruction, widths);
+                                        }
+                                    });
+                                ui.label("NEXT INSTRUCTION:");
+                                let next_instruction = &emulator.cpu_view.instructions
+                                    [emulator.cpu_view.instructions.len() - 1];
+                                egui::Grid::new("cpu_trace")
+                                    .striped(true)
+                                    .num_columns(3)
+                                    .show(ui, |ui| {
+                                        Self::display_instruction(ui, next_instruction, widths);
+                                    });
+                            },
+                        );
+                }
             });
     }
 }
@@ -576,75 +592,132 @@ impl Component for PpuViewWindow {
                     .get_mut(&ComponentId::PpuViewWindow)
                     .unwrap(),
             )
-            .fixed_size([200.0, 0.0])
-            .resizable(false)
+            .default_size([200.0, 0.0])
+            .resizable([true, false])
             .show(ui, |ui| {
                 if let Some(emulator) = &context.emulator {
-                    let frame = [
-                        (
-                            "Scanline".to_string(),
-                            format!("{}", emulator.ppu_view.scanline),
-                        ),
-                        ("Dot".to_string(), format!("{}", emulator.ppu_view.dot)),
-                    ];
-                    let internal_registers = [
-                        (
-                            "Scroll Position:".to_string(),
-                            format!("0x{:04X}", emulator.ppu_view.v),
-                        ),
-                        (
-                            "Course X:".to_string(),
-                            format!("0x{:04X}", emulator.ppu_view.t),
-                        ),
-                        (
-                            "Fine X:".to_string(),
-                            format!("0x{:02X}", emulator.ppu_view.x),
-                        ),
-                        (
-                            "Write Toggle:".to_string(),
-                            format!("{}", emulator.ppu_view.w),
-                        ),
-                    ];
-                    let mmio_registers = [
-                        ("MMIO Registers:".to_string(), "".to_string()),
-                        (
+                    let ppuctrl = Vec::from([
+                        RowType::Value((
                             "PPUCTRL ($2000)".to_string(),
-                            format!("0x{:02X}", emulator.ppu_view.mmio.ppuctrl),
-                        ),
-                        (
+                            format!("0x{:02X}", emulator.ppu_view.mmio.ppuctrl.value),
+                        )),
+                        RowType::Value((
+                            "Base nametable address".to_string(),
+                            emulator
+                                .ppu_view
+                                .mmio
+                                .ppuctrl
+                                .base_nametable_address
+                                .clone(),
+                        )),
+                        RowType::Value((
+                            "VRAM address increment".to_string(),
+                            emulator
+                                .ppu_view
+                                .mmio
+                                .ppuctrl
+                                .vram_address_increment
+                                .clone(),
+                        )),
+                        RowType::Value((
+                            "Sprite pattern\ntable address".to_string(),
+                            emulator
+                                .ppu_view
+                                .mmio
+                                .ppuctrl
+                                .sprite_pattern_table_address
+                                .clone(),
+                        )),
+                        RowType::Value((
+                            "Background pattern\ntable address".to_string(),
+                            emulator
+                                .ppu_view
+                                .mmio
+                                .ppuctrl
+                                .background_pattern_table_address
+                                .clone(),
+                        )),
+                        RowType::Value((
+                            "Sprite size".to_string(),
+                            emulator.ppu_view.mmio.ppuctrl.sprite_size.clone(),
+                        )),
+                        RowType::Value((
+                            "Vblank NMI".to_string(),
+                            emulator.ppu_view.mmio.ppuctrl.vblank_nmi.clone(),
+                        )),
+                    ]);
+                    let ppustatus = Vec::from([
+                        RowType::Value((
+                            "PPUSTATUS ($2002)".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.mmio.ppustatus.value),
+                        )),
+                        RowType::Value((
+                            "Sprite overflow".to_string(),
+                            format!("{}", emulator.ppu_view.mmio.ppustatus.sprite_overflow),
+                        )),
+                        RowType::Value((
+                            "Sprite 0 hit".to_string(),
+                            format!("{}", emulator.ppu_view.mmio.ppustatus.sprite_0_hit),
+                        )),
+                        RowType::Value((
+                            "Vblank".to_string(),
+                            format!("{}", emulator.ppu_view.mmio.ppustatus.vblank),
+                        )),
+                    ]);
+                    let mmio_registers = Vec::from([
+                        RowType::Value(("MMIO Registers".to_string(), "".to_string())),
+                        RowType::Collapsible(ppuctrl),
+                        RowType::Value((
                             "PPUMASK ($2001)".to_string(),
                             format!("0x{:02X}", emulator.ppu_view.mmio.ppumask),
-                        ),
-                        (
-                            "PPUSTATUS ($2002)".to_string(),
-                            format!("0x{:02X}", emulator.ppu_view.mmio.ppustatus),
-                        ),
-                        (
+                        )),
+                        RowType::Collapsible(ppustatus),
+                        RowType::Value((
                             "OAMADDR ($2003)".to_string(),
                             format!("0x{:02X}", emulator.ppu_view.mmio.oamaddr),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "OAMDATA ($2004)".to_string(),
                             format!("0x{:02X}", emulator.ppu_view.mmio.oamdata),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "PPUSCROLL ($2005)".to_string(),
                             format!("0x{:02X}", emulator.ppu_view.mmio.ppuscroll),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "PPUADDR ($2006)".to_string(),
                             format!("0x{:02X}", emulator.ppu_view.mmio.ppuaddr),
-                        ),
-                        (
+                        )),
+                        RowType::Value((
                             "PPUDATA ($2007)".to_string(),
                             format!("0x{:02X}", emulator.ppu_view.mmio.ppudata),
-                        ),
-                    ];
-                    key_value_grid(ui, "internal_registers", &internal_registers, false);
-                    ui.add_space(2.5);
-                    collapsible_key_value_grid(ui, "mmio_registers", &mmio_registers, false);
-                    ui.add_space(2.5);
-                    key_value_grid(ui, "frame", &frame, true);
+                        )),
+                    ]);
+                    let ppu_view = Vec::from([
+                        RowType::Value((
+                            "Scroll Position".to_string(),
+                            format!("0x{:04X}", emulator.ppu_view.v),
+                        )),
+                        RowType::Value((
+                            "Course X".to_string(),
+                            format!("0x{:04X}", emulator.ppu_view.t),
+                        )),
+                        RowType::Value((
+                            "Fine X".to_string(),
+                            format!("0x{:02X}", emulator.ppu_view.x),
+                        )),
+                        RowType::Value((
+                            "Write Toggle".to_string(),
+                            format!("{}", emulator.ppu_view.w),
+                        )),
+                        RowType::Collapsible(mmio_registers),
+                        RowType::Value((
+                            "Scanline".to_string(),
+                            format!("{}", emulator.ppu_view.scanline),
+                        )),
+                        RowType::Value(("Dot".to_string(), format!("{}", emulator.ppu_view.dot))),
+                    ]);
+                    key_value_grid(ui, &ppu_view, false);
                 }
             });
     }

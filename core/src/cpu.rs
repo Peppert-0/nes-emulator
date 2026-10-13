@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::bus;
 
 pub static OPCODES: [Opcode; 256] = [
@@ -1404,11 +1406,12 @@ pub struct Cpu {
     pub pc: u16,
     sp: u8,
     pub p: u8,
+    pub instruction_history: Vec<InstructionView>,
 }
 pub struct CpuView {
     pub registers: RegisterView,
     pub flags: FlagView,
-    pub instructions: Vec<InstructionView>,
+    pub instructions: VecDeque<InstructionView>,
 }
 pub struct RegisterView {
     pub a: u8,
@@ -1441,11 +1444,15 @@ pub struct Opcode {
 }
 
 impl CpuView {
-    pub fn update<B: bus::Bus>(&mut self, cpu: &Cpu, bus: &B) -> () {
+    pub fn update<B: bus::Bus>(&mut self, cpu: &mut Cpu, bus: &B) -> () {
         self.registers = RegisterView::new(cpu);
         self.flags = FlagView::new(cpu);
-        let instruction = cpu.disassemble_next_instruction(bus);
-        self.instructions.push(instruction);
+        let mut new_instructions: VecDeque<InstructionView> =
+            cpu.instruction_history.drain(..).collect();
+        self.instructions.append(&mut new_instructions);
+        if self.instructions.len() > 5000 {
+            self.instructions.drain(..self.instructions.len() - 5000);
+        }
     }
 }
 impl RegisterView {
@@ -1481,13 +1488,14 @@ impl Cpu {
             pc: 0x0000,
             sp: 0xFD,
             p: 0b0000_0100,
+            instruction_history: Vec::new(),
         }
     }
 
-    pub fn view(&self) -> CpuView {
+    pub fn view(&mut self) -> CpuView {
         let registers = RegisterView::new(&self);
         let flags = FlagView::new(&self);
-        let instructions = Vec::new();
+        let instructions: VecDeque<InstructionView> = self.instruction_history.drain(..).collect();
 
         CpuView {
             registers,
@@ -1645,10 +1653,14 @@ impl Cpu {
     pub fn reset<B: bus::Bus>(&mut self, bus: &B) {
         self.pc = bus.read_u16(0xFFFC);
         self.sp = self.sp.wrapping_sub(3);
+        self.instruction_history
+            .push(self.disassemble_next_instruction(bus));
     }
     pub fn step<B: bus::Bus>(&mut self, bus: &mut B) {
         let opcode = self.fetch(bus);
         self.execute(bus, opcode);
+        self.instruction_history
+            .push(self.disassemble_next_instruction(bus));
     }
     pub fn fetch<B: bus::Bus>(&mut self, bus: &B) -> Opcode {
         let opcode = bus.read(self.pc);
