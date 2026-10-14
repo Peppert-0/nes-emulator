@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::fs::File;
 use std::rc::Rc;
 
-use crate::Shared;
 use crate::bus::{CpuBus, PpuBus};
 use crate::cartridge::{Cartridge, CartridgeView, NesParseError};
 use crate::cpu::{Cpu, CpuView};
@@ -11,9 +10,6 @@ use crate::ppu::{Ppu, PpuRegisters, PpuView};
 pub struct Console {
     pub cpu: Cpu,
     pub cpu_bus: CpuBus,
-    pub cartridge: Shared<Cartridge>,
-    pub ppu: Ppu,
-    pub ppu_registers: Shared<PpuRegisters>,
 }
 pub struct ConsoleView {
     pub cpu_view: CpuView,
@@ -23,27 +19,19 @@ pub struct ConsoleView {
 
 impl Console {
     pub fn new(rom: &mut File) -> Result<Self, NesParseError> {
-        let cartridge = Rc::new(RefCell::new(Cartridge::load_from_file(rom)?));
-        let ppu_registers = Rc::new(RefCell::new(PpuRegisters::new()));
+        let cartridge = Cartridge::load_from_file(rom)?;
+        let ppu = Ppu::new();
+        let cpu_bus = CpuBus::new(cartridge, ppu);
         let cpu = Cpu::new();
-        let cpu_bus = CpuBus::new(cartridge.clone(), ppu_registers.clone());
-        let ppu_bus = PpuBus::new(cartridge.clone());
-        let ppu = Ppu::new(ppu_registers.clone(), ppu_bus);
 
-        Ok(Self {
-            cpu,
-            cpu_bus,
-            cartridge,
-            ppu,
-            ppu_registers,
-        })
+        Ok(Self { cpu, cpu_bus })
     }
 }
 impl ConsoleView {
     pub fn new(console: &mut Console) -> Self {
         let cpu_view = console.cpu.view();
-        let cartridge_view = console.cartridge.borrow().view();
-        let ppu_view = console.ppu.view();
+        let cartridge_view = console.cpu_bus.cartridge.view();
+        let ppu_view = console.cpu_bus.ppu.view();
 
         Self {
             cpu_view,
@@ -53,7 +41,7 @@ impl ConsoleView {
     }
     pub fn update(&mut self, console: &mut Console) {
         self.cpu_view.update(&mut console.cpu, &console.cpu_bus);
-        self.cartridge_view = console.cartridge.borrow().view();
-        self.ppu_view = console.ppu.view();
+        self.cartridge_view = console.cpu_bus.cartridge.view();
+        self.ppu_view = console.cpu_bus.ppu.view();
     }
 }

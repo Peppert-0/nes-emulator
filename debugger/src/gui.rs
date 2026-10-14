@@ -241,54 +241,54 @@ impl Component for CpuViewWindow {
                 if let Some(emulator) = &context.emulator {
                     let flags = Vec::from([
                         RowType::Value((
-                            "Flags:".to_string(),
+                            "Flags".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.p),
                         )),
                         RowType::Value((
-                            "Carry:".to_string(),
+                            "Carry".to_string(),
                             format!("{}", emulator.cpu_view.flags.carry),
                         )),
                         RowType::Value((
-                            "Zero:".to_string(),
+                            "Zero".to_string(),
                             format!("{}", emulator.cpu_view.flags.carry),
                         )),
                         RowType::Value((
-                            "Interrupt\nDisable:".to_string(),
+                            "Interrupt\nDisable".to_string(),
                             format!("{}", emulator.cpu_view.flags.interrupt_disable),
                         )),
                         RowType::Value((
-                            "Decimal:".to_string(),
+                            "Decimal".to_string(),
                             format!("{}", emulator.cpu_view.flags.decimal),
                         )),
                         RowType::Value((
-                            "Overflow:".to_string(),
+                            "Overflow".to_string(),
                             format!("{}", emulator.cpu_view.flags.overflow),
                         )),
                         RowType::Value((
-                            "Negative:".to_string(),
+                            "Negative".to_string(),
                             format!("{}", emulator.cpu_view.flags.negative),
                         )),
                     ]);
 
                     let registers = [
                         RowType::Value((
-                            "Program Counter:".to_string(),
+                            "Program Counter".to_string(),
                             format!("0x{:04X}", emulator.cpu_view.registers.pc),
                         )),
                         RowType::Value((
-                            "Stack Pointer:".to_string(),
+                            "Stack Pointer".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.sp),
                         )),
                         RowType::Value((
-                            "Accumulator:".to_string(),
+                            "Accumulator".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.a),
                         )),
                         RowType::Value((
-                            "X Register:".to_string(),
+                            "X Register".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.x),
                         )),
                         RowType::Value((
-                            "Y Register:".to_string(),
+                            "Y Register".to_string(),
                             format!("0x{:02X}", emulator.cpu_view.registers.y),
                         )),
                         RowType::Collapsible(flags),
@@ -318,7 +318,7 @@ fn key_value_grid(ui: &mut egui::Ui, data: &[RowType], alternate_stripe_order: b
                         }
                     })
                     .num_columns(2)
-                    .spacing([0.0, 5.0])
+                    .spacing([30.0, 5.0])
                     .show(ui, |ui| {
                         for row in section {
                             match row {
@@ -593,7 +593,7 @@ impl Component for PpuViewWindow {
                     .unwrap(),
             )
             .default_size([200.0, 0.0])
-            .resizable([true, false])
+            .resizable(false)
             .show(ui, |ui| {
                 if let Some(emulator) = &context.emulator {
                     let ppuctrl = Vec::from([

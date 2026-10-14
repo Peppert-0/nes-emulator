@@ -54,7 +54,7 @@ impl CpuState {
 }
 
 fn debug_step(console: &mut console::Console, log: String) {
-    let trace = console.cpu.trace(&console.cpu_bus);
+    let trace = console.cpu.trace(&mut console.cpu_bus);
     let expected = CpuState::from_log(&log);
     let actual = CpuState::from_trace(&trace);
     assert!(

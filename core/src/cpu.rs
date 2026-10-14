@@ -1503,13 +1503,13 @@ impl Cpu {
             instructions,
         }
     }
-    fn disassemble_next_instruction<B: bus::Bus>(&self, bus: &B) -> InstructionView {
-        let opcode_byte = bus.read(self.pc);
+    fn disassemble_next_instruction<B: bus::Bus>(&self, bus: &mut B) -> InstructionView {
+        let opcode_byte = bus.immutable_read(self.pc);
         let opcode = OPCODES[opcode_byte as usize];
         let mnemonic = format!("{:?}", opcode.instruction);
-        let operand_byte = bus.read(self.pc.wrapping_add(1));
-        let operand_byte_2 = bus.read(self.pc.wrapping_add(2));
-        let operand_bytes = bus.read_u16(self.pc.wrapping_add(1));
+        let operand_byte = bus.immutable_read(self.pc.wrapping_add(1));
+        let operand_byte_2 = bus.immutable_read(self.pc.wrapping_add(2));
+        let operand_bytes = bus.immutable_read_u16(self.pc.wrapping_add(1));
         let mut bytes = Vec::new();
         bytes.push(opcode_byte);
         let operand = match opcode.mode {
@@ -1572,8 +1572,8 @@ impl Cpu {
             operand,
         }
     }
-    pub fn trace<B: bus::Bus>(&self, bus: &B) -> String {
-        let opcode_byte = bus.read(self.pc);
+    pub fn trace<B: bus::Bus>(&self, bus: &mut B) -> String {
+        let opcode_byte = bus.immutable_read(self.pc);
         let opcode = OPCODES[opcode_byte as usize];
         let operand = match opcode.mode {
             AddressingMode::Implicit => {
@@ -1583,53 +1583,53 @@ impl Cpu {
                 format!("     ")
             }
             AddressingMode::Immediate => {
-                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+                format!("{:02X}   ", bus.immutable_read(self.pc.wrapping_add(1)))
             }
             AddressingMode::ZeroPage => {
-                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+                format!("{:02X}   ", bus.immutable_read(self.pc.wrapping_add(1)))
             }
             AddressingMode::ZeroPageX => {
-                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+                format!("{:02X}   ", bus.immutable_read(self.pc.wrapping_add(1)))
             }
             AddressingMode::ZeroPageY => {
-                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+                format!("{:02X}   ", bus.immutable_read(self.pc.wrapping_add(1)))
             }
             AddressingMode::Relative => {
-                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+                format!("{:02X}   ", bus.immutable_read(self.pc.wrapping_add(1)))
             }
             AddressingMode::Absolute => {
                 format!(
                     "{:02X} {:02X}",
-                    bus.read(self.pc.wrapping_add(1)),
-                    bus.read(self.pc.wrapping_add(2))
+                    bus.immutable_read(self.pc.wrapping_add(1)),
+                    bus.immutable_read(self.pc.wrapping_add(2))
                 )
             }
             AddressingMode::AbsoluteX => {
                 format!(
                     "{:02X} {:02X}",
-                    bus.read(self.pc.wrapping_add(1)),
-                    bus.read(self.pc.wrapping_add(2))
+                    bus.immutable_read(self.pc.wrapping_add(1)),
+                    bus.immutable_read(self.pc.wrapping_add(2))
                 )
             }
             AddressingMode::AbsoluteY => {
                 format!(
                     "{:02X} {:02X}",
-                    bus.read(self.pc.wrapping_add(1)),
-                    bus.read(self.pc.wrapping_add(2))
+                    bus.immutable_read(self.pc.wrapping_add(1)),
+                    bus.immutable_read(self.pc.wrapping_add(2))
                 )
             }
             AddressingMode::Indirect => {
                 format!(
                     "{:02X} {:02X}",
-                    bus.read(self.pc.wrapping_add(1)),
-                    bus.read(self.pc.wrapping_add(2))
+                    bus.immutable_read(self.pc.wrapping_add(1)),
+                    bus.immutable_read(self.pc.wrapping_add(2))
                 )
             }
             AddressingMode::IndirectX => {
-                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+                format!("{:02X}   ", bus.immutable_read(self.pc.wrapping_add(1)))
             }
             AddressingMode::IndirectY => {
-                format!("{:02X}   ", bus.read(self.pc.wrapping_add(1)))
+                format!("{:02X}   ", bus.immutable_read(self.pc.wrapping_add(1)))
             }
         };
         let instruction = opcode.instruction;
@@ -1639,18 +1639,20 @@ impl Cpu {
         )
     }
 
-    pub fn nmi_detected<B: bus::Bus>(&self, bus: &B) -> bool {
-        let nmi = bus.read(0x2000) & (1 << 7) != 0;
-        let vblank = bus.read(0x2002) & (1 << 7) != 0;
+    pub fn nmi_detected<B: bus::Bus>(&self, bus: &mut B) -> bool {
+        let nmi = bus.immutable_read(0x2000) & (1 << 7) != 0;
+        let vblank = bus.immutable_read(0x2002) & (1 << 7) != 0;
         nmi && vblank
     }
     pub fn handle_nmi<B: bus::Bus>(&mut self, bus: &mut B) {
         self.push_pc(bus);
         self.push_flags(bus);
         self.pc = bus.read_u16(0xFFFA);
+        self.instruction_history
+            .push(self.disassemble_next_instruction(bus));
     }
 
-    pub fn reset<B: bus::Bus>(&mut self, bus: &B) {
+    pub fn reset<B: bus::Bus>(&mut self, bus: &mut B) {
         self.pc = bus.read_u16(0xFFFC);
         self.sp = self.sp.wrapping_sub(3);
         self.instruction_history
@@ -1661,15 +1663,18 @@ impl Cpu {
         self.execute(bus, opcode);
         self.instruction_history
             .push(self.disassemble_next_instruction(bus));
+        if self.nmi_detected(bus) {
+            self.handle_nmi(bus);
+        }
     }
-    pub fn fetch<B: bus::Bus>(&mut self, bus: &B) -> Opcode {
+    pub fn fetch<B: bus::Bus>(&mut self, bus: &mut B) -> Opcode {
         let opcode = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
         OPCODES[opcode as usize]
     }
-    pub fn decode<B: bus::Bus>(&mut self, bus: &B, opcode: Opcode) -> Operand {
+    pub fn decode<B: bus::Bus>(&mut self, bus: &mut B, opcode: Opcode) -> Operand {
         match opcode.mode {
-            AddressingMode::Implicit => self.implicit(),
+            AddressingMode::Implicit => self.implicit(bus),
             AddressingMode::Accumulator => self.accumulator(),
             AddressingMode::Immediate => self.immediate(),
             AddressingMode::ZeroPage => self.zero_page(bus),
@@ -1897,7 +1902,8 @@ impl Cpu {
 
 // addressing modes
 impl Cpu {
-    pub fn implicit(&self) -> Operand {
+    pub fn implicit<B: bus::Bus>(&self, bus: &mut B) -> Operand {
+        bus.read(self.pc.wrapping_add(1));
         Operand::Implied
     }
     pub fn accumulator(&self) -> Operand {
@@ -1908,66 +1914,66 @@ impl Cpu {
         self.pc = self.pc.wrapping_add(1);
         Operand::Address(address)
     }
-    pub fn zero_page<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn zero_page<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let address = bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
         Operand::Address(u16::from(address))
     }
-    pub fn zero_page_x<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn zero_page_x<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = bus.read(self.pc);
         let address = base.wrapping_add(self.x);
         self.pc = self.pc.wrapping_add(1);
         Operand::Address(u16::from(address))
     }
-    pub fn zero_page_y<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn zero_page_y<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = bus.read(self.pc);
         let address = base.wrapping_add(self.y);
         self.pc = self.pc.wrapping_add(1);
         Operand::Address(u16::from(address))
     }
-    pub fn relative<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn relative<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = bus.read(self.pc) as i8;
         self.pc = self.pc.wrapping_add(1);
         Operand::Relative(base)
     }
-    pub fn absolute<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn absolute<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = self.pc;
         let address = bus.read_u16(base);
         self.pc = self.pc.wrapping_add(2);
         Operand::Address(address)
     }
-    pub fn absolute_x<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn absolute_x<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = self.pc;
         let address = bus.read_u16(base).wrapping_add(u16::from(self.x));
         self.pc = self.pc.wrapping_add(2);
         Operand::Address(address)
     }
-    pub fn absolute_y<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn absolute_y<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = self.pc;
         let address = bus.read_u16(base).wrapping_add(u16::from(self.y));
         self.pc = self.pc.wrapping_add(2);
         Operand::Address(address)
     }
-    pub fn indirect<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn indirect<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = bus.read_u16(self.pc);
         let address = bus.read_u16(base);
         self.pc = self.pc.wrapping_add(2);
         Operand::Address(address)
     }
-    pub fn indirect_bug<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn indirect_bug<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = bus.read_u16(self.pc);
         let address = bus.read_u16_bug(base);
         self.pc = self.pc.wrapping_add(2);
         Operand::Address(address)
     }
-    pub fn indirect_x<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn indirect_x<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = bus.read(self.pc);
         let sum = base.wrapping_add(self.x);
         let address = bus.read_u16_zp(sum);
         self.pc = self.pc.wrapping_add(1);
         Operand::Address(address)
     }
-    pub fn indirect_y<B: bus::Bus>(&mut self, bus: &B) -> Operand {
+    pub fn indirect_y<B: bus::Bus>(&mut self, bus: &mut B) -> Operand {
         let base = bus.read(self.pc);
         let address = bus.read_u16_zp(base);
         let sum = address.wrapping_add(u16::from(self.y));
@@ -1978,7 +1984,7 @@ impl Cpu {
 
 // instructions
 impl Cpu {
-    pub fn lda<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn lda<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let value = operand.address_value(bus);
         self.a = value;
         self.set_zn(value);
@@ -1988,7 +1994,7 @@ impl Cpu {
         let value = self.a;
         bus.write(value, address);
     }
-    pub fn ldx<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn ldx<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let value = operand.address_value(bus);
         self.x = value;
         self.set_zn(value);
@@ -1997,7 +2003,7 @@ impl Cpu {
         let address = operand.address();
         bus.write(self.x, address);
     }
-    pub fn ldy<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn ldy<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let value = operand.address_value(bus);
         self.y = value;
         self.set_zn(value);
@@ -2022,7 +2028,7 @@ impl Cpu {
         self.a = self.y;
         self.set_zn(self.y);
     }
-    pub fn adc<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn adc<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let value = operand.address_value(bus);
         let sum = u16::from(self.a)
             .wrapping_add(u16::from(value))
@@ -2030,7 +2036,7 @@ impl Cpu {
         self.set_czvn_adc(sum, value);
         self.a = sum as u8;
     }
-    pub fn sbc<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn sbc<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let value = operand.address_value(bus);
         let sum = i16::from(self.a) - i16::from(value) - i16::from(!self.carry());
         self.set_czvn_sbc(sum, value);
@@ -2136,28 +2142,28 @@ impl Cpu {
             self.set_zn(result);
         }
     }
-    pub fn and<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn and<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let address = operand.address();
         let value = bus.read(address);
         let result = self.a & value;
         self.a = result;
         self.set_zn(result);
     }
-    pub fn ora<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn ora<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let address = operand.address();
         let value = bus.read(address);
         let result = self.a | value;
         self.a = result;
         self.set_zn(result);
     }
-    pub fn eor<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn eor<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let address = operand.address();
         let value = bus.read(address);
         let result = self.a ^ value;
         self.a = result;
         self.set_zn(result);
     }
-    pub fn bit<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn bit<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let address = operand.address();
         let value = bus.read(address);
         let result = self.a & value;
@@ -2165,17 +2171,17 @@ impl Cpu {
         self.set_overflow((value & 0x40) != 0);
         self.set_negative((value & 0x80) != 0);
     }
-    pub fn cmp<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn cmp<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let address = operand.address();
         let value = bus.read(address);
         self.set_czn_cmp(self.a, value);
     }
-    pub fn cpx<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn cpx<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let address = operand.address();
         let value = bus.read(address);
         self.set_czn_cmp(self.x, value);
     }
-    pub fn cpy<B: bus::Bus>(&mut self, bus: &B, operand: Operand) {
+    pub fn cpy<B: bus::Bus>(&mut self, bus: &mut B, operand: Operand) {
         let address = operand.address();
         let value = bus.read(address);
         self.set_czn_cmp(self.y, value);
@@ -2237,7 +2243,7 @@ impl Cpu {
         self.push_pc(bus);
         self.pc = address;
     }
-    pub fn rts<B: bus::Bus>(&mut self, bus: &B) {
+    pub fn rts<B: bus::Bus>(&mut self, bus: &mut B) {
         self.pull_pc(bus);
         self.pc = self.pc.wrapping_add(1);
     }
@@ -2245,16 +2251,16 @@ impl Cpu {
         self.push_pc(bus);
         self.push_flags(bus);
         self.set_interrupt(true);
-        self.pc = 0xFFFE;
+        self.pc = bus.read_u16(0xFFFE);
     }
-    pub fn rti<B: bus::Bus>(&mut self, bus: &B) {
+    pub fn rti<B: bus::Bus>(&mut self, bus: &mut B) {
         self.pull_flags(bus);
         self.pull_pc(bus);
     }
     pub fn pha<B: bus::Bus>(&mut self, bus: &mut B) {
         self.push(bus, self.a);
     }
-    pub fn pla<B: bus::Bus>(&mut self, bus: &B) {
+    pub fn pla<B: bus::Bus>(&mut self, bus: &mut B) {
         let result = self.pull(bus);
         self.a = result;
         self.set_zn(result);
@@ -2262,7 +2268,7 @@ impl Cpu {
     pub fn php<B: bus::Bus>(&mut self, bus: &mut B) {
         self.push_flags(bus);
     }
-    pub fn plp<B: bus::Bus>(&mut self, bus: &B) {
+    pub fn plp<B: bus::Bus>(&mut self, bus: &mut B) {
         self.pull_flags(bus);
     }
     pub fn txs(&mut self) {
@@ -2307,7 +2313,7 @@ impl Cpu {
         bus.write(value, 0x0100 + u16::from(self.sp));
         self.sp = self.sp.wrapping_sub(1);
     }
-    pub fn pull<B: bus::Bus>(&mut self, bus: &B) -> u8 {
+    pub fn pull<B: bus::Bus>(&mut self, bus: &mut B) -> u8 {
         self.sp = self.sp.wrapping_add(1);
         bus.read(0x0100 + u16::from(self.sp))
     }
@@ -2322,13 +2328,13 @@ impl Cpu {
         let flags = (self.p | BREAK) | (1 << 4);
         self.push(bus, flags);
     }
-    pub fn pull_pc<B: bus::Bus>(&mut self, bus: &B) {
+    pub fn pull_pc<B: bus::Bus>(&mut self, bus: &mut B) {
         let low = u16::from(self.pull(bus));
         let high = u16::from(self.pull(bus));
         let address = (high << 8) | low;
         self.pc = address;
     }
-    pub fn pull_flags<B: bus::Bus>(&mut self, bus: &B) {
+    pub fn pull_flags<B: bus::Bus>(&mut self, bus: &mut B) {
         let flags = self.pull(bus);
         self.p = (flags & !BREAK) | UNUSED;
     }
@@ -2432,7 +2438,7 @@ impl Operand {
             panic!("Invalid operand type")
         }
     }
-    pub fn address_value<B: bus::Bus>(self, bus: &B) -> u8 {
+    pub fn address_value<B: bus::Bus>(self, bus: &mut B) -> u8 {
         if let Self::Address(address) = self {
             bus.read(address)
         } else {

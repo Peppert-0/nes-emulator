@@ -352,14 +352,14 @@ impl Context {
                                 self.bitmaps.push((
                                     TextureName::PatternTable1,
                                     Bitmap::from_pattern_table(
-                                        emulator.cartridge.borrow().chr_slice(),
+                                        emulator.cpu_bus.cartridge.chr_slice(),
                                         0,
                                     ),
                                 ));
                                 self.bitmaps.push((
                                     TextureName::PatternTable2,
                                     Bitmap::from_pattern_table(
-                                        emulator.cartridge.borrow().chr_slice(),
+                                        emulator.cpu_bus.cartridge.chr_slice(),
                                         1,
                                     ),
                                 ));

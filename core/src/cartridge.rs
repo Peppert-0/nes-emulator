@@ -60,9 +60,7 @@ impl Mapper for Nrom {
                     prg_rom[offset as usize]
                 }
             }
-            _ => {
-                panic!("Invalid address range")
-            }
+            _ => 0,
         }
     }
     fn ppu_read(&self, chr: &ChrMemory, vram: &[u8; 2048], address: u16) -> u8 {

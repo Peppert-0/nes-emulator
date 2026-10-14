@@ -1,6 +1,7 @@
 use crate::{
     Shared,
     bus::{Bus, PpuBus},
+    cartridge::Cartridge,
 };
 
 pub struct Ppu {
@@ -8,7 +9,7 @@ pub struct Ppu {
     t: u16,
     x: u8,
     w: bool,
-    mmio: Shared<PpuRegisters>,
+    pub mmio: PpuRegisters,
     dot: u16,
     scanline: u16,
     bus: PpuBus,
@@ -133,17 +134,16 @@ impl PpuStatusView {
     }
 }
 impl MmioView {
-    pub fn new(registers: &Shared<PpuRegisters>) -> Self {
-        let registers_ref = registers.borrow();
+    pub fn new(registers: &PpuRegisters) -> Self {
         Self {
-            ppuctrl: PpuCtrlView::new(registers_ref.ppuctrl),
-            ppumask: registers_ref.ppumask,
-            ppustatus: PpuStatusView::new(registers_ref.ppustatus),
-            oamaddr: registers_ref.oamaddr,
-            oamdata: registers_ref.oamdata,
-            ppuscroll: registers_ref.ppuscroll,
-            ppuaddr: registers_ref.ppuaddr,
-            ppudata: registers_ref.ppudata,
+            ppuctrl: PpuCtrlView::new(registers.ppuctrl),
+            ppumask: registers.ppumask,
+            ppustatus: PpuStatusView::new(registers.ppustatus),
+            oamaddr: registers.oamaddr,
+            oamdata: registers.oamdata,
+            ppuscroll: registers.ppuscroll,
+            ppuaddr: registers.ppuaddr,
+            ppudata: registers.ppudata,
         }
     }
 }
@@ -153,7 +153,9 @@ const CTRL_NMI: u8 = 1 << 7;
 const STATUS_VBLANK: u8 = 1 << 7;
 
 impl Ppu {
-    pub fn new(registers: Shared<PpuRegisters>, bus: PpuBus) -> Self {
+    pub fn new() -> Self {
+        let registers = PpuRegisters::new();
+        let bus = PpuBus::new();
         Self {
             v: 0,
             t: 0,
@@ -172,12 +174,10 @@ impl Ppu {
     }
 
     pub fn tick(&mut self) {
-        let mut registers = self.mmio.borrow_mut();
-
         if self.scanline == 241 && self.dot == 1 {
-            registers.set_status_vblank(true);
+            self.mmio.set_status_vblank(true);
         } else if self.scanline == 261 && self.dot == 1 {
-            registers.set_status_vblank(false);
+            self.mmio.set_status_vblank(false);
         }
 
         self.dot += 1;
@@ -210,23 +210,24 @@ impl Ppu {
         }
     }
 
-    fn fetch_nametable_byte(&self) -> u8 {
+    fn fetch_nametable_byte(&self, cartridge: &Cartridge) -> u8 {
         let address = 0x2000 | (self.v & 0x0FFF);
-        self.bus.read(address)
+        self.bus.read(cartridge, address)
     }
-    fn fetch_attribute_byte(&self) -> u8 {
+    fn fetch_attribute_byte(&self, cartridge: &Cartridge) -> u8 {
         let address = 0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07);
-        self.bus.read(address)
+        self.bus.read(cartridge, address)
     }
     fn fetch_pattern_address(&self, tile: u8) -> u16 {
-        let mmio = self.mmio.borrow();
-        ((mmio.ctrl_pattern_table() as u16) << 0xC) | ((tile as u16) << 4) | self.fine_y() as u16
+        ((self.mmio.ctrl_pattern_table() as u16) << 0xC)
+            | ((tile as u16) << 4)
+            | self.fine_y() as u16
     }
-    fn fetch_pattern_byte_low(&self, address: u16) -> u8 {
-        self.bus.read(address)
+    fn fetch_pattern_byte_low(&self, cartridge: &Cartridge, address: u16) -> u8 {
+        self.bus.read(cartridge, address)
     }
-    fn fetch_pattern_byte_high(&self, address: u16) -> u8 {
-        self.bus.read(address + 8)
+    fn fetch_pattern_byte_high(&self, cartridge: &Cartridge, address: u16) -> u8 {
+        self.bus.read(cartridge, address + 8)
     }
     fn fetch_palette_low(&self, attribute: u8) -> u8 {
         let quadrant = ((self.course_y() & 2) >> 1) | (self.course_x() & 2);
