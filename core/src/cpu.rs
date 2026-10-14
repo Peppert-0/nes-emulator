@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::bus;
+use crate::bus::{self, Bus, CpuBus};
 
 pub static OPCODES: [Opcode; 256] = [
     Opcode {
@@ -1406,7 +1406,7 @@ pub struct Cpu {
     pub pc: u16,
     sp: u8,
     pub p: u8,
-    pub instruction_history: Vec<InstructionView>,
+    pub instruction_history: VecDeque<InstructionView>,
 }
 pub struct CpuView {
     pub registers: RegisterView,
@@ -1429,11 +1429,13 @@ pub struct FlagView {
     pub zero: bool,
     pub carry: bool,
 }
+#[derive(Clone)]
 pub struct InstructionView {
     pub address: u16,
     pub bytes: Vec<u8>,
     pub mnemonic: String,
     pub operand: Option<String>,
+    pub cycles: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1447,12 +1449,7 @@ impl CpuView {
     pub fn update<B: bus::Bus>(&mut self, cpu: &mut Cpu, bus: &B) -> () {
         self.registers = RegisterView::new(cpu);
         self.flags = FlagView::new(cpu);
-        let mut new_instructions: VecDeque<InstructionView> =
-            cpu.instruction_history.drain(..).collect();
-        self.instructions.append(&mut new_instructions);
-        if self.instructions.len() > 5000 {
-            self.instructions.drain(..self.instructions.len() - 5000);
-        }
+        self.instructions = cpu.instruction_history.clone().into();
     }
 }
 impl RegisterView {
@@ -1488,14 +1485,14 @@ impl Cpu {
             pc: 0x0000,
             sp: 0xFD,
             p: 0b0000_0100,
-            instruction_history: Vec::new(),
+            instruction_history: VecDeque::new(),
         }
     }
 
     pub fn view(&mut self) -> CpuView {
         let registers = RegisterView::new(&self);
         let flags = FlagView::new(&self);
-        let instructions: VecDeque<InstructionView> = self.instruction_history.drain(..).collect();
+        let instructions: VecDeque<InstructionView> = self.instruction_history.clone().into();
 
         CpuView {
             registers,
@@ -1503,13 +1500,23 @@ impl Cpu {
             instructions,
         }
     }
-    fn disassemble_next_instruction<B: bus::Bus>(&self, bus: &mut B) -> InstructionView {
-        let opcode_byte = bus.immutable_read(self.pc);
+    fn update_instruction_history<B: bus::Bus>(&mut self, bus: &mut B, cycles: u8) {
+        if let Some(instruction) = self.instruction_history.back_mut() {
+            instruction.cycles = Some(cycles);
+        };
+        self.instruction_history
+            .push_back(self.disassemble_instruction(bus, self.pc));
+        if self.instruction_history.len() > 5000 {
+            self.instruction_history.pop_front();
+        };
+    }
+    fn disassemble_instruction<B: bus::Bus>(&self, bus: &mut B, address: u16) -> InstructionView {
+        let opcode_byte = bus.immutable_read(address);
         let opcode = OPCODES[opcode_byte as usize];
         let mnemonic = format!("{:?}", opcode.instruction);
-        let operand_byte = bus.immutable_read(self.pc.wrapping_add(1));
-        let operand_byte_2 = bus.immutable_read(self.pc.wrapping_add(2));
-        let operand_bytes = bus.immutable_read_u16(self.pc.wrapping_add(1));
+        let operand_byte = bus.immutable_read(address.wrapping_add(1));
+        let operand_byte_2 = bus.immutable_read(address.wrapping_add(2));
+        let operand_bytes = bus.immutable_read_u16(address.wrapping_add(1));
         let mut bytes = Vec::new();
         bytes.push(opcode_byte);
         let operand = match opcode.mode {
@@ -1570,6 +1577,7 @@ impl Cpu {
             bytes,
             mnemonic,
             operand,
+            cycles: None,
         }
     }
     pub fn trace<B: bus::Bus>(&self, bus: &mut B) -> String {
@@ -1644,25 +1652,28 @@ impl Cpu {
         let vblank = bus.immutable_read(0x2002) & (1 << 7) != 0;
         nmi && vblank
     }
-    pub fn handle_nmi<B: bus::Bus>(&mut self, bus: &mut B) {
+    pub fn handle_nmi(&mut self, bus: &mut CpuBus) {
+        let cycles = bus.cycles;
         self.push_pc(bus);
         self.push_flags(bus);
         self.pc = bus.read_u16(0xFFFA);
-        self.instruction_history
-            .push(self.disassemble_next_instruction(bus));
+        let cycle_diff = bus.cycles - cycles;
+        self.update_instruction_history(bus, cycle_diff as u8);
     }
 
-    pub fn reset<B: bus::Bus>(&mut self, bus: &mut B) {
+    pub fn reset(&mut self, bus: &mut CpuBus) {
+        let cycles = bus.cycles;
         self.pc = bus.read_u16(0xFFFC);
         self.sp = self.sp.wrapping_sub(3);
-        self.instruction_history
-            .push(self.disassemble_next_instruction(bus));
+        let cycle_diff = bus.cycles - cycles;
+        self.update_instruction_history(bus, cycle_diff as u8);
     }
-    pub fn step<B: bus::Bus>(&mut self, bus: &mut B) {
+    pub fn step(&mut self, bus: &mut CpuBus) {
+        let cycles = bus.cycles;
         let opcode = self.fetch(bus);
         self.execute(bus, opcode);
-        self.instruction_history
-            .push(self.disassemble_next_instruction(bus));
+        let cycle_diff = bus.cycles - cycles;
+        self.update_instruction_history(bus, cycle_diff as u8);
         if self.nmi_detected(bus) {
             self.handle_nmi(bus);
         }

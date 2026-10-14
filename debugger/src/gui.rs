@@ -480,7 +480,7 @@ impl InstructionViewWindow {
     fn display_instruction(
         ui: &mut egui::Ui,
         instruction: &InstructionView,
-        (address_width, bytes_width, instruction_width): (f32, f32, f32),
+        (address_width, bytes_width, instruction_width, cycles_width): (f32, f32, f32, f32),
     ) {
         Self::cell(
             ui,
@@ -504,6 +504,7 @@ impl InstructionViewWindow {
         );
         let pink = Color32::from_hex("#d3869b").unwrap();
         let pink2 = Color32::from_hex("#b16286").unwrap();
+        let yellow = Color32::from_hex("#d79921").unwrap();
         let text = match &instruction.operand {
             Some(operand) => {
                 format!("{} {}", instruction.mnemonic, operand)
@@ -514,6 +515,19 @@ impl InstructionViewWindow {
             ui,
             instruction_width,
             RichText::new(text).monospace().color(pink2),
+        );
+        let cycles = match &instruction.cycles {
+            Some(cycles) => {
+                format!("{}", cycles)
+            }
+            None => {
+                format!("N/A")
+            }
+        };
+        Self::cell(
+            ui,
+            cycles_width,
+            RichText::new(cycles).monospace().color(yellow),
         );
         ui.end_row();
     }
@@ -533,12 +547,14 @@ impl Component for InstructionViewWindow {
                 let address_width = 65.0;
                 let bytes_width = 100.0;
                 let instruction_width = 120.0;
-                let widths = (address_width, bytes_width, instruction_width);
+                let cycles_width = 65.0;
+                let widths = (address_width, bytes_width, instruction_width, cycles_width);
 
                 egui::Grid::new("header").num_columns(3).show(ui, |ui| {
                     Self::cell(ui, address_width, RichText::new("ADDR"));
                     Self::cell(ui, bytes_width, RichText::new("BYTES"));
                     Self::cell(ui, instruction_width, RichText::new("INSTRUCTION"));
+                    Self::cell(ui, cycles_width, RichText::new("CYCLES"));
                     ui.end_row();
                 });
                 let rect = ui.min_rect();
@@ -560,7 +576,7 @@ impl Component for InstructionViewWindow {
                             |ui, row_range| {
                                 egui::Grid::new("cpu_trace")
                                     .striped(true)
-                                    .num_columns(3)
+                                    .num_columns(4)
                                     .show(ui, |ui| {
                                         for instruction in
                                             emulator.cpu_view.instructions.range(row_range)
