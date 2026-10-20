@@ -4,6 +4,17 @@ use crate::{
     cartridge::Cartridge,
 };
 
+const PALETTE: [u32; 64] = [
+    0x3f4346, 0x000a6c, 0x06007e, 0x280072, 0x41004a, 0x4b0010, 0x440000, 0x2e0a00, 0x0d1e00,
+    0x002d00, 0x003200, 0x002c04, 0x001c3f, 0x000000, 0x000000, 0x000000, 0x474d50, 0x0031a5,
+    0x0d00b1, 0x4e03b8, 0x700089, 0x810043, 0x7b1200, 0x612c00, 0x394500, 0x0e5900, 0x006200,
+    0x005c1b, 0x004a68, 0x000000, 0x000000, 0x000000, 0x17191a, 0x004798, 0x00057c, 0x43008a,
+    0x740091, 0x8e0761, 0x870d07, 0xa7680c, 0x848000, 0x5b9500, 0x38a00d, 0x249e4c, 0x248f95,
+    0x2f3234, 0x000000, 0x000000, 0x17191a, 0x2a2d2f, 0x25282a, 0x26292b, 0x410055, 0x520440,
+    0x4f0309, 0x5c340a, 0x4a4513, 0x404d10, 0x395e11, 0x12542f, 0x18534f, 0x404447, 0x000000,
+    0x000000,
+];
+
 pub struct Ppu {
     v: u16,
     t: u16,
@@ -14,10 +25,21 @@ pub struct Ppu {
     scanline: u16,
     bus: PpuBus,
     oam: [u8; 256],
+    pipeline: Pipeline,
+}
+#[derive(Default)]
+struct Pipeline {
+    next_nametable_tile: u8,
+    next_attribute_byte: u8,
+    pattern_low_bitplane: u8,
+    pattern_high_bitplane: u8,
+
     attribute_shift_low: u8,
     attribute_shift_high: u8,
     pattern_shift_low: u16,
     pattern_shift_high: u16,
+
+    pixels: Vec<[u8; 4]>,
 }
 pub struct PpuView {
     pub v: u16,
@@ -28,10 +50,6 @@ pub struct PpuView {
     pub dot: u16,
     pub scanline: u16,
     pub oam: [u8; 256],
-    pub attribute_shift_low: u8,
-    pub attribute_shift_high: u8,
-    pub pattern_shift_low: u16,
-    pub pattern_shift_high: u16,
 }
 
 pub struct PpuRegisters {
@@ -156,6 +174,7 @@ impl Ppu {
     pub fn new() -> Self {
         let registers = PpuRegisters::new();
         let bus = PpuBus::new();
+        let pipeline = Pipeline::default();
         Self {
             v: 0,
             t: 0,
@@ -166,19 +185,26 @@ impl Ppu {
             scanline: 0,
             bus,
             oam: [0; 256],
-            attribute_shift_low: 0,
-            attribute_shift_high: 0,
-            pattern_shift_low: 0,
-            pattern_shift_high: 0,
+            pipeline,
         }
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, cartridge: &Cartridge) {
         if self.scanline == 241 && self.dot == 1 {
             self.mmio.set_status_vblank(true);
         } else if self.scanline == 261 && self.dot == 1 {
             self.mmio.set_status_vblank(false);
         }
+        self.vram_fetch(cartridge);
+        if (0..=239).contains(&self.scanline) {
+            if self.dot == 256 {
+                self.increment_vertical();
+            } else if self.dot == 257 {
+                self.v = self.t;
+            }
+        }
+
+        self.shift_registers();
 
         self.dot += 1;
 
@@ -203,13 +229,30 @@ impl Ppu {
             dot: self.dot,
             scanline: self.scanline,
             oam: self.oam,
-            attribute_shift_low: self.attribute_shift_low,
-            attribute_shift_high: self.attribute_shift_high,
-            pattern_shift_low: self.pattern_shift_low,
-            pattern_shift_high: self.pattern_shift_high,
         }
     }
 
+    fn vram_fetch(&mut self, cartridge: &Cartridge) {
+        if (0..=239).contains(&self.scanline) {
+            if self.dot % 8 == 1 {
+                self.pipeline.next_nametable_tile = self.fetch_nametable_byte(cartridge);
+            } else if self.dot % 8 == 3 {
+                self.pipeline.next_attribute_byte = self.fetch_attribute_byte(cartridge);
+            } else if self.dot % 8 == 5 {
+                self.pipeline.pattern_low_bitplane = self.fetch_pattern_byte_low(
+                    cartridge,
+                    self.fetch_pattern_address(self.pipeline.next_nametable_tile),
+                );
+            } else if self.dot % 8 == 7 {
+                self.pipeline.pattern_high_bitplane = self.fetch_pattern_byte_high(
+                    cartridge,
+                    self.fetch_pattern_address(self.pipeline.next_nametable_tile),
+                );
+            } else if self.dot % 8 == 0 {
+                self.increment_horizontal();
+            }
+        }
+    }
     fn fetch_nametable_byte(&self, cartridge: &Cartridge) -> u8 {
         let address = 0x2000 | (self.v & 0x0FFF);
         self.bus.read(cartridge, address)
@@ -229,37 +272,27 @@ impl Ppu {
     fn fetch_pattern_byte_high(&self, cartridge: &Cartridge, address: u16) -> u8 {
         self.bus.read(cartridge, address + 8)
     }
-    fn fetch_palette_low(&self, attribute: u8) -> u8 {
-        let quadrant = ((self.course_y() & 2) >> 1) | (self.course_x() & 2);
-        match quadrant {
-            0 => attribute & 0x01,
-            1 => (attribute & 0x04) >> 2,
-            2 => (attribute & 0x10) >> 4,
-            3 => (attribute & 0x40) >> 6,
-            _ => 0,
-        }
-    }
-    fn fetch_palette_high(&self, attribute: u8) -> u8 {
-        let quadrant = ((self.course_y() & 2) >> 1) | (self.course_x() & 2);
-        match quadrant {
-            0 => (attribute & 0x02) >> 1,
-            1 => (attribute & 0x08) >> 3,
-            2 => (attribute & 0x20) >> 5,
-            3 => (attribute & 0x80) >> 7,
-            _ => 0,
-        }
+    fn push_pixel(&mut self) {
+        let pixel = self.fetch_pixel() & (1 << 4);
     }
     fn fetch_pixel(&self) -> u8 {
-        ((self.pattern_shift_low as u8) & self.x)
-            | (((self.pattern_shift_high as u8) & self.x) << 1)
-            | ((self.attribute_shift_low & self.x) << 2)
-            | ((self.attribute_shift_high & self.x) << 3)
+        ((self.pipeline.pattern_shift_low as u8) & self.x)
+            | (((self.pipeline.pattern_shift_high as u8) & self.x) << 1)
+            | ((self.pipeline.attribute_shift_low & self.x) << 2)
+            | ((self.pipeline.attribute_shift_high & self.x) << 3)
     }
     fn shift_registers(&mut self) {
-        self.attribute_shift_high >>= 1;
-        self.attribute_shift_low >>= 1;
-        self.pattern_shift_high >>= 1;
-        self.pattern_shift_low >>= 1;
+        let quadrant = (self.course_y() & 2) << 1 | self.course_x() & 2;
+        let attribute_bits = (self.pipeline.next_attribute_byte >> quadrant) & 3;
+        let attribute_bit_high = (attribute_bits & 2) >> 1;
+        let attribute_bit_low = attribute_bits & 1;
+        self.pipeline.attribute_shift_high =
+            (self.pipeline.attribute_shift_high >> 1) & (attribute_bit_high << 7);
+        self.pipeline.attribute_shift_low =
+            (self.pipeline.attribute_shift_low >> 1) & (attribute_bit_low << 7);
+        self.pipeline.attribute_shift_low >>= 1;
+        self.pipeline.pattern_shift_high >>= 1;
+        self.pipeline.pattern_shift_low >>= 1;
     }
 
     fn increment_horizontal(&mut self) {

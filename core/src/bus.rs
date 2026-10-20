@@ -26,7 +26,7 @@ impl Bus for CpuBus {
     fn read(&mut self, address: u16) -> u8 {
         self.cycles += 1;
         for _ in 0..3 {
-            self.ppu.tick();
+            self.ppu.tick(&self.cartridge);
         }
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize],
@@ -46,7 +46,7 @@ impl Bus for CpuBus {
     fn write(&mut self, value: u8, address: u16) {
         self.cycles += 1;
         for _ in 0..3 {
-            self.ppu.tick();
+            self.ppu.tick(&self.cartridge);
         }
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize] = value,
