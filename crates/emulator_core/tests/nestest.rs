@@ -1,4 +1,4 @@
-use core::{console, cpu::CpuView};
+use emulator_core::{console, cpu::CpuView};
 use std::{
     fs::File,
     io::{BufRead, BufReader},

@@ -7,7 +7,7 @@ edition = "2024"
 ash = "0.38.0"
 builder = { version = "0.1.0", path = "../builder_macro/builder" }
 bytemuck = "1.25.2"
-core = { version = "0.1.0", path = "../core" }
+emulator_core = { version = "0.1.0", path = "../emulator_core" }
 egui = "0.36.2"
 egui-ash-renderer = "0.13.0"
 sdl3 = { version = "0.18.4", features = ["ash"]}

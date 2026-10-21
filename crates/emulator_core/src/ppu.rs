@@ -59,7 +59,7 @@ pub struct PpuRegisters {
     oamaddr: u8,
     oamdata: u8,
     ppuscroll: u8,
-    ppuaddr: u8,
+    ppuaddr: u16,
     ppudata: u8,
 }
 pub struct MmioView {
@@ -69,7 +69,7 @@ pub struct MmioView {
     pub oamaddr: u8,
     pub oamdata: u8,
     pub ppuscroll: u8,
-    pub ppuaddr: u8,
+    pub ppuaddr: u16,
     pub ppudata: u8,
 }
 pub struct PpuCtrlView {
@@ -330,6 +330,39 @@ impl Ppu {
     fn course_y(&self) -> u8 {
         ((self.v & 0x03E0) >> 5) as u8
     }
+    pub fn cpu_read(&mut self, address: u16) -> u8 {
+        match address {
+            0x2000 => self.mmio.ppuctrl,
+            0x2001 => self.mmio.ppumask,
+            0x2002 => {
+                self.w = false;
+                self.mmio.ppustatus
+            }
+            0x2003 => self.mmio.oamaddr,
+            0x2004 => self.mmio.oamdata,
+            0x2005 => self.mmio.ppuscroll,
+            0x2007 => self.mmio.ppudata,
+            _ => 0,
+        }
+    }
+    pub fn cpu_write(&mut self, address: u16, value: u8) {
+        match address {
+            0x2000 => self.mmio.ppuctrl = value,
+            0x2001 => self.mmio.ppumask = value,
+            0x2003 => self.mmio.oamaddr = value,
+            0x2004 => self.mmio.oamdata = value,
+            0x2005 => self.mmio.ppuscroll = value,
+            0x2006 => {
+                if self.w {
+                    self.mmio.ppuaddr |= value as u16;
+                } else {
+                    self.mmio.ppuaddr |= (value as u16) << 8;
+                }
+            }
+            0x2007 => self.mmio.ppudata = value,
+            _ => {}
+        }
+    }
 }
 
 impl PpuRegisters {
@@ -346,31 +379,6 @@ impl PpuRegisters {
         }
     }
 
-    pub fn cpu_read(&self, address: u16) -> u8 {
-        match address {
-            0x2000 => self.ppuctrl,
-            0x2001 => self.ppumask,
-            0x2002 => self.ppustatus,
-            0x2003 => self.oamaddr,
-            0x2004 => self.oamdata,
-            0x2005 => self.ppuscroll,
-            0x2006 => self.ppuaddr,
-            0x2007 => self.ppudata,
-            _ => 0,
-        }
-    }
-    pub fn cpu_write(&mut self, address: u16, value: u8) {
-        match address {
-            0x2000 => self.ppuctrl = value,
-            0x2001 => self.ppumask = value,
-            0x2003 => self.oamaddr = value,
-            0x2004 => self.oamdata = value,
-            0x2005 => self.ppuscroll = value,
-            0x2006 => self.ppuaddr = value,
-            0x2007 => self.ppudata = value,
-            _ => {}
-        }
-    }
     fn set_ctrl_nmi(&mut self, value: bool) {
         if value {
             self.ppuctrl |= CTRL_NMI

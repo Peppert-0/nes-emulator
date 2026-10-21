@@ -1,4 +1,4 @@
-use core::{
+use emulator_core::{
     command::{self, Command},
     console::ConsoleView,
     cpu::InstructionView,

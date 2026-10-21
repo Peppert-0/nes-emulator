@@ -30,7 +30,7 @@ impl Bus for CpuBus {
         }
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize],
-            0x2000..=0x3FFF => self.ppu.mmio.cpu_read(0x2000 + (address & 0x0007)),
+            0x2000..=0x3FFF => self.ppu.cpu_read(0x2000 + (address & 0x0007)),
             0x4020..=0xFFFF => self.cartridge.cpu_read(address),
             _ => 0,
         }
@@ -38,7 +38,7 @@ impl Bus for CpuBus {
     fn immutable_read(&self, address: u16) -> u8 {
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize],
-            0x2000..=0x3FFF => self.ppu.mmio.cpu_read(0x2000 + (address & 0x0007)),
+            //0x2000..=0x3FFF => self.ppu.cpu_read(0x2000 + (address & 0x0007)),
             0x4020..=0xFFFF => self.cartridge.cpu_read(address),
             _ => 0,
         }
@@ -50,7 +50,7 @@ impl Bus for CpuBus {
         }
         match address {
             0x0000..=0x1FFF => self.ram[(address & 0x07FF) as usize] = value,
-            0x2000..=0x3FFF => self.ppu.mmio.cpu_write(0x2000 + (address & 0x0007), value),
+            0x2000..=0x3FFF => self.ppu.cpu_write(0x2000 + (address & 0x0007), value),
             0x4020..=0xFFFF => self.cartridge.cpu_write(address, value),
             _ => {}
         }

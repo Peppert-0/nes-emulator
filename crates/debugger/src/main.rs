@@ -1,4 +1,4 @@
-use core::cartridge::{self, Cartridge};
+use emulator_core::cartridge::{self, Cartridge};
 use std::{fs::File, path::Path, time::Duration};
 
 use sdl3::{event::Event, keyboard::Keycode};

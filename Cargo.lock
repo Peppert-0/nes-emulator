@@ -122,14 +122,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
-name = "core"
-version = "0.1.0"
-dependencies = [
- "builder",
- "sha2",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -154,9 +146,9 @@ dependencies = [
  "ash",
  "builder",
  "bytemuck",
- "core",
  "egui",
  "egui-ash-renderer",
+ "emulator_core",
  "sdl3",
  "sha2",
 ]
@@ -224,6 +216,14 @@ name = "emath"
 version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52c8d4141cf0f60fb2f7aefaf352d3ffa5171ef0ab09731c64391801e95e48f1"
+
+[[package]]
+name = "emulator_core"
+version = "0.1.0"
+dependencies = [
+ "builder",
+ "sha2",
+]
 
 [[package]]
 name = "epaint"

@@ -9,13 +9,13 @@ use ash::{
     vk::{AccessFlags2, ImageLayout, PipelineStageFlags2},
 };
 use builder::Builder;
-use core::cartridge::{Cartridge, NesParseError};
-use core::command;
-use core::console::{Console, ConsoleView};
 use egui::WidgetType::Image;
 use egui::load::SizedTexture;
 use egui::{FullOutput, PointerButton, Pos2, RawInput, TextureId, Widget};
 use egui_ash_renderer::{DynamicRendering, allocator::DefaultAllocator};
+use emulator_core::cartridge::{Cartridge, NesParseError};
+use emulator_core::command;
+use emulator_core::console::{Console, ConsoleView};
 use sdl3::event::WindowEvent;
 use sdl3::mouse::Cursor;
 use sdl3::{
