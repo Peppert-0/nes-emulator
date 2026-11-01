@@ -2,6 +2,7 @@ use emulator_core::{console, cpu::CpuView};
 use std::{
     fs::File,
     io::{BufRead, BufReader},
+    path::PathBuf,
 };
 
 #[derive(PartialEq)]
@@ -96,10 +97,16 @@ fn format_trace(state: CpuState, descriptor: &str) -> String {
     )
 }
 
+fn fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join(name)
+}
+
 #[test]
 fn test_rom() -> std::io::Result<()> {
-    let mut rom = File::open("tests/roms/nestest.nes")?;
-    let log_file = File::open("tests/logs/nestest.log")?;
+    let mut rom = File::open(fixture("roms/nestest.nes"))?;
+    let log_file = File::open(fixture("logs/nestest.log"))?;
     let log = BufReader::new(log_file);
     let mut console = console::Console::new(&mut rom).unwrap();
     console.cpu.pc = 0xC000;

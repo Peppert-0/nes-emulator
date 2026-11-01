@@ -58,7 +58,7 @@ pub struct PpuRegisters {
     ppustatus: u8,
     oamaddr: u8,
     oamdata: u8,
-    ppuscroll: u8,
+    ppuscroll: u16,
     ppuaddr: u16,
     ppudata: u8,
 }
@@ -68,7 +68,7 @@ pub struct MmioView {
     pub ppustatus: PpuStatusView,
     pub oamaddr: u8,
     pub oamdata: u8,
-    pub ppuscroll: u8,
+    pub ppuscroll: u16,
     pub ppuaddr: u16,
     pub ppudata: u8,
 }
@@ -167,6 +167,7 @@ impl MmioView {
 }
 
 const CTRL_NMI: u8 = 1 << 7;
+const CTRL_INC: u8 = 1 << 2;
 
 const STATUS_VBLANK: u8 = 1 << 7;
 
@@ -332,16 +333,19 @@ impl Ppu {
     }
     pub fn cpu_read(&mut self, address: u16) -> u8 {
         match address {
-            0x2000 => self.mmio.ppuctrl,
-            0x2001 => self.mmio.ppumask,
             0x2002 => {
                 self.w = false;
                 self.mmio.ppustatus
             }
-            0x2003 => self.mmio.oamaddr,
             0x2004 => self.mmio.oamdata,
-            0x2005 => self.mmio.ppuscroll,
-            0x2007 => self.mmio.ppudata,
+            0x2007 => {
+                if self.mmio.ctrl_vram_increment() {
+                    self.v = self.v.wrapping_add(32);
+                } else {
+                    self.v = self.v.wrapping_add(1);
+                }
+                self.mmio.ppudata
+            }
             _ => 0,
         }
     }
@@ -350,8 +354,17 @@ impl Ppu {
             0x2000 => self.mmio.ppuctrl = value,
             0x2001 => self.mmio.ppumask = value,
             0x2003 => self.mmio.oamaddr = value,
-            0x2004 => self.mmio.oamdata = value,
-            0x2005 => self.mmio.ppuscroll = value,
+            0x2004 => {
+                self.mmio.oamdata = value;
+                self.mmio.oamaddr = self.mmio.oamaddr.wrapping_add(1);
+            }
+            0x2005 => {
+                if self.w {
+                    self.mmio.ppuscroll |= (value as u16) << 8;
+                } else {
+                    self.mmio.ppuscroll |= 0x00FF & value as u16;
+                }
+            }
             0x2006 => {
                 if self.w {
                     self.mmio.ppuaddr |= value as u16;
@@ -359,7 +372,14 @@ impl Ppu {
                     self.mmio.ppuaddr |= (value as u16) << 8;
                 }
             }
-            0x2007 => self.mmio.ppudata = value,
+            0x2007 => {
+                self.mmio.ppudata = value;
+                if self.mmio.ctrl_vram_increment() {
+                    self.v = self.v.wrapping_add(32);
+                } else {
+                    self.v = self.v.wrapping_add(1);
+                }
+            }
             _ => {}
         }
     }
@@ -385,6 +405,9 @@ impl PpuRegisters {
         } else {
             self.ppuctrl &= !CTRL_NMI
         }
+    }
+    fn ctrl_vram_increment(&self) -> bool {
+        self.ppuctrl & CTRL_INC != 0
     }
     fn set_status_vblank(&mut self, value: bool) {
         if value {
